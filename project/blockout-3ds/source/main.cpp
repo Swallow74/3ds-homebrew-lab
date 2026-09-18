@@ -46,11 +46,10 @@ static const u32 HK_UP     = KEY_UP;      /* crostiera o levetta */
 static const u32 HK_DOWN   = KEY_DOWN;
 static const u32 HK_LEFT   = KEY_LEFT;
 static const u32 HK_RIGHT  = KEY_RIGHT;
-static const u32 HK_DUP    = KEY_DUP;     /* sola crostiera (menu) */
-static const u32 HK_DDOWN  = KEY_DDOWN;
-static const u32 HK_DLEFT  = KEY_DLEFT;
-static const u32 HK_DRIGHT = KEY_DRIGHT;
 static const u32 HK_CST_UP = KEY_CSTICK_UP;
+static const u32 HK_CST_DOWN = KEY_CSTICK_DOWN;
+static const u32 HK_CST_LEFT = KEY_CSTICK_LEFT;
+static const u32 HK_CST_RIGHT = KEY_CSTICK_RIGHT;
 
 #include "render.h"
 #include "Game.h"
@@ -196,7 +195,7 @@ static void drawMenu(int sel) {
   render_begin_bottom();
   r_rect(0.0f, 0.0f, BOTW, 240.0f, COL_BLACK);
   r_text(160.0f, 18.0f, 15.0f, COL_GREEN, "BlockOut 3DS", 1, 0);
-  r_text(160.0f, 46.0f, 12.0f, COL_WHITE, "D-pad: select", 1, 0);
+  r_text(160.0f, 46.0f, 12.0f, COL_WHITE, "D-pad/stick: select", 1, 0);
   r_text(160.0f, 64.0f, 12.0f, COL_WHITE, "A: confirm   B: exit", 1, 0);
   r_text(160.0f, 104.0f, 12.0f, COL_GREEN, "Game controls", 0, 0);
   r_text(8.0f, 124.0f, 12.0f, COL_WHITE, "D-pad/stick: move piece", 0, 0);
@@ -217,8 +216,8 @@ static int runMainMenu(void) {
     drawMenu(sel);
     pollInput();
 
-    if (hkPressed & HK_DUP)    { sel = (sel + MENU_NB - 1) % MENU_NB; audio_tchh(); }
-    if (hkPressed & HK_DDOWN)  { sel = (sel + 1) % MENU_NB;            audio_tchh(); }
+    if (hkPressed & (HK_UP | HK_CST_UP))      { sel = (sel + MENU_NB - 1) % MENU_NB; audio_tchh(); }
+    if (hkPressed & (HK_DOWN | HK_CST_DOWN))  { sel = (sel + 1) % MENU_NB;            audio_tchh(); }
 
     if (hkPressed & (HK_A | HK_START)) {
       act = sel + ACT_PLAY;
@@ -306,8 +305,8 @@ static void drawSetupPage(int sel) {
   render_begin_bottom();
   r_rect(0.0f, 0.0f, BOTW, 240.0f, COL_BLACK);
   r_text(160.0f, 20.0f, 15.0f, COL_GREEN, "Setup", 1, 0);
-  r_text(160.0f, 48.0f, 12.0f, COL_WHITE, "D-pad up/down: item", 1, 0);
-  r_text(160.0f, 66.0f, 12.0f, COL_WHITE, "D-pad left/right: value", 1, 0);
+  r_text(160.0f, 48.0f, 12.0f, COL_WHITE, "D-pad/stick up/down: item", 1, 0);
+  r_text(160.0f, 66.0f, 12.0f, COL_WHITE, "D-pad/stick left/right: value", 1, 0);
   r_text(160.0f, 84.0f, 12.0f, COL_WHITE, "A: save    B: cancel", 1, 0);
   r_line(24.0f, 112.0f, 296.0f, 112.0f, 1.0f, COL_GRAY);
   r_text(160.0f, 124.0f, 13.0f, COL_WHITE, setupRows[sel].label, 1, 0);
@@ -332,10 +331,10 @@ static void runSetupPage(void) {
     pollInput();
 
     int dv = 0;
-    if (hkPressed & HK_DUP)    { sel = (sel + SETUP_NB - 1) % SETUP_NB; audio_tchh(); }
-    if (hkPressed & HK_DDOWN)  { sel = (sel + 1) % SETUP_NB;             audio_tchh(); }
-    if (hkPressed & HK_DLEFT)  { dv = -1; }
-    if (hkPressed & HK_DRIGHT) { dv = +1; }
+    if (hkPressed & (HK_UP | HK_CST_UP))        { sel = (sel + SETUP_NB - 1) % SETUP_NB; audio_tchh(); }
+    if (hkPressed & (HK_DOWN | HK_CST_DOWN))    { sel = (sel + 1) % SETUP_NB;             audio_tchh(); }
+    if (hkPressed & (HK_LEFT | HK_CST_LEFT))    { dv = -1; }
+    if (hkPressed & (HK_RIGHT | HK_CST_RIGHT))  { dv = +1; }
 
     if (dv) {
       switch (sel) {
