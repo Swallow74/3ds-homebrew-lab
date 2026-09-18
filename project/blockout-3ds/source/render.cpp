@@ -887,7 +887,7 @@ void renderHud(Game *g) {
   r_rect(px0, py0, 1.0f, py1 - py0, COL_GREEN);
   r_rect(px1 - 1.0f, py0, 1.0f, py1 - py0, COL_GREEN);
 
-  r_text(pyc, 8.0f, 12.0f, COL_GREEN, "PARTITA", 1, 0);
+  r_text(pyc, 8.0f, 12.0f, COL_GREEN, "GAME", 1, 0);
   r_line(px0 + 4.0f, 24.0f, px1 - 4.0f, 24.0f, 1.0f, COL_GRAY);
 
   /* riga: etichetta grigia 9px + valore bianco centrato; il valore scala
@@ -904,11 +904,11 @@ void renderHud(Game *g) {
            g->thePit.GetHeight(), g->thePit.GetDepth());
 
   const Row rows[] = {
-    { "PUNTI",  sScore },
-    { "CUBI",   sCube },
-    { "RECORD", sHigh },
-    { "TEMPO",  sTime },
-    { "POZZO",  sPit },
+    { "SCORE",  sScore },
+    { "CUBES",  sCube },
+    { "BEST",   sHigh },
+    { "TIME",   sTime },
+    { "PIT",    sPit },
     { "SET",    g->setupManager->GetBlockSetName() },
   };
   float y = 29.0f;
@@ -925,15 +925,15 @@ void renderHud(Game *g) {
   /* stato: demo / pratica / pausa (l'originale: RenderDemo/RenderPractice) */
   const char *mode = NULL;
   uint32_t mc = COL_GREEN;
-  if (g->demoFlag)           { mode = "DEMO";    }
-  else if (g->practiceFlag)  { mode = "PRATICA"; }
-  else if (g->gameMode == GAME_PAUSED) { mode = "PAUSA"; mc = COL_WHITE; }
+  if (g->demoFlag)           { mode = "DEMO";     }
+  else if (g->practiceFlag)  { mode = "PRACTICE"; }
+  else if (g->gameMode == GAME_PAUSED) { mode = "PAUSED"; mc = COL_WHITE; }
   if (mode) r_text(pyc, y + 2.0f, 11.0f, mc, mode, 1, 0);
 
   /* livello nel box di sinistra (Sprites::RenderLevel) */
   snprintf(buf, sizeof(buf), "%d", g->level);
   r_text(17.0f, 8.0f, 16.0f, COL_WHITE, buf, 1, 0);
-  r_text(17.0f, 24.0f, 9.0f, COL_GRAY, "LIV", 1, 0);
+  r_text(17.0f, 24.0f, 9.0f, COL_GRAY, "LVL", 1, 0);
 }
 
 /* Pit::RenderLevel(): colonna del livello a sinistra, disegnata con gli
@@ -1024,11 +1024,11 @@ void renderGameModeOverlay(Game *g) {
   if (g->gameMode == GAME_OVER) {
     r_text(xGOver + wGOver * 0.5f, yGOver + hGOver * 0.5f - 12.0f, 24.0f, COL_RED, "GAME OVER", 1, 0);
     r_text(xGOver + wGOver * 0.5f, yGOver + hGOver * 0.5f + 16.0f, 12.0f, COL_WHITE,
-           "START: menu   SELECT: esci", 1, 0);
+           "START: menu   SELECT: exit", 1, 0);
   } else if (g->gameMode == GAME_PAUSED) {
-    r_text(xGOver + wGOver * 0.5f, yGOver + hGOver * 0.5f - 12.0f, 24.0f, COL_WHITE, "PAUSA", 1, 0);
+    r_text(xGOver + wGOver * 0.5f, yGOver + hGOver * 0.5f - 12.0f, 24.0f, COL_WHITE, "PAUSED", 1, 0);
     r_text(xGOver + wGOver * 0.5f, yGOver + hGOver * 0.5f + 16.0f, 12.0f, COL_WHITE,
-           "START: continua", 1, 0);
+           "START: resume", 1, 0);
   }
 }
 
@@ -1132,61 +1132,61 @@ void renderBottomUI(Game *g) {
 
   if (g->gameMode == GAME_OVER) {
     r_text(cx, 12, 20, COL_RED, "GAME OVER", 1, 0);
-    snprintf(buf, sizeof(buf), "PUNTI %d", g->score.score);
+    snprintf(buf, sizeof(buf), "SCORE %d", g->score.score);
     r_text(cx, 44, 14, COL_WHITE, buf, 1, 0);
-    snprintf(buf, sizeof(buf), "CUBI %d", g->score.nbCube);
+    snprintf(buf, sizeof(buf), "CUBES %d", g->score.nbCube);
     r_text(cx, 64, 12, COL_WHITE, buf, 1, 0);
     snprintf(buf, sizeof(buf), "1x%d  2x%d  3x%d  4x%d  5x%d",
              g->score.nbLine1, g->score.nbLine2, g->score.nbLine3,
              g->score.nbLine4, g->score.nbLine5);
     r_text(cx, 84, 12, COL_GREEN, buf, 1, 0);
-    snprintf(buf, sizeof(buf), "LIVELLO %d   %s", g->score.startLevel,
+    snprintf(buf, sizeof(buf), "LEVEL %d   %s", g->score.startLevel,
              g->setupManager->GetBlockSetName());
     r_text(cx, 104, 12, COL_WHITE, buf, 1, 0);
     int gsecs = (int)(g->curTime - g->startGameTime);
     if (gsecs < 0) gsecs = 0;
-    snprintf(buf, sizeof(buf), "TEMPO %d:%02d", gsecs / 60, gsecs % 60);
+    snprintf(buf, sizeof(buf), "TIME %d:%02d", gsecs / 60, gsecs % 60);
     r_text(cx, 124, 12, COL_WHITE, buf, 1, 0);
     if (g->demoFlag || g->practiceFlag)
-      r_text(cx, 160, 13, COL_GREEN, "A / START: ricomincia   SELECT: esci", 1, 0);
+      r_text(cx, 160, 13, COL_GREEN, "A / START: retry   SELECT: exit", 1, 0);
     else
-      r_text(cx, 160, 13, COL_GREEN, "START: torna al menu   SELECT: esci", 1, 0);
+      r_text(cx, 160, 13, COL_GREEN, "START: back to menu   SELECT: exit", 1, 0);
     return;
   }
 
   r_text(cx, 8, 15, COL_GREEN, "BlockOut 3DS", 1, 0);
 
-  snprintf(buf, sizeof(buf), "Livello %d - %s - %dx%dx%d", g->level,
+  snprintf(buf, sizeof(buf), "Level %d - %s - %dx%dx%d", g->level,
            g->setupManager->GetBlockSetName(),
            g->thePit.GetWidth(), g->thePit.GetHeight(), g->thePit.GetDepth());
   r_text(cx, 28, 12, COL_WHITE, buf, 1, 0);
 
-  snprintf(buf, sizeof(buf), "Linee: 1x%d 2x%d 3x%d 4x%d 5x%d",
+  snprintf(buf, sizeof(buf), "Lines: 1x%d 2x%d 3x%d 4x%d 5x%d",
            g->score.nbLine1, g->score.nbLine2, g->score.nbLine3,
            g->score.nbLine4, g->score.nbLine5);
   r_text(cx, 46, 12, COL_GREEN, buf, 1, 0);
 
   if (g->demoFlag)      r_text(cx, 64, 12, COL_RED, "DEMO (AI)", 1, 0);
-  else if (g->practiceFlag) r_text(cx, 64, 12, COL_RED, "PRATICA", 1, 0);
-  else if (g->gameMode == GAME_PAUSED) r_text(cx, 64, 12, COL_RED, "PAUSA", 1, 0);
-  else r_text(cx, 64, 12, COL_WHITE, "PARTITA IN CORSO", 1, 0);
+  else if (g->practiceFlag) r_text(cx, 64, 12, COL_RED, "PRACTICE", 1, 0);
+  else if (g->gameMode == GAME_PAUSED) r_text(cx, 64, 12, COL_RED, "PAUSED", 1, 0);
+  else r_text(cx, 64, 12, COL_WHITE, "GAME IN PROGRESS", 1, 0);
 
   r_line(12.0f, 82.0f, 308.0f, 82.0f, 1.0f, COL_GRAY);
-  r_text(12, 88, 11, COL_GREEN, "COMANDI", 0, 0);
+  r_text(12, 88, 11, COL_GREEN, "CONTROLS", 0, 0);
 
-  /* colonna sinistra: movimento e caduta */
-  r_text(12, 104, 11, COL_WHITE, "D-pad/levetta: muovi", 0, 0);
-  r_text(12, 120, 11, COL_WHITE, "L + D-pad: diagonali", 0, 0);
-  r_text(12, 136, 11, COL_WHITE, "A: caduta", 0, 0);
-  r_text(12, 152, 11, COL_WHITE, "START: pausa   SELECT: esci", 0, 0);
-  /* colonna destra: rotazioni e extra */
-  r_text(172, 104, 11, COL_WHITE, "B/X/Y: ruota", 0, 0);
-  r_text(172, 120, 11, COL_WHITE, "R + rotaz.: inversa", 0, 0);
-  r_text(172, 136, 11, COL_WHITE, "ZL: aiuto (pratica)", 0, 0);
-  r_text(172, 152, 11, COL_WHITE, "ZR: 3D  L+R+START: audio", 0, 0);
+  /* left column: movement and drop */
+  r_text(12, 104, 11, COL_WHITE, "D-pad/stick: move", 0, 0);
+  r_text(12, 120, 11, COL_WHITE, "L + D-pad: diagonals", 0, 0);
+  r_text(12, 136, 11, COL_WHITE, "A: drop", 0, 0);
+  r_text(12, 152, 11, COL_WHITE, "START: pause   SELECT: exit", 0, 0);
+  /* right column: rotations and extras */
+  r_text(172, 104, 11, COL_WHITE, "B/X/Y: rotate", 0, 0);
+  r_text(172, 120, 11, COL_WHITE, "R + rot.: reverse", 0, 0);
+  r_text(172, 136, 11, COL_WHITE, "ZL: hint (practice)", 0, 0);
+  r_text(172, 152, 11, COL_WHITE, "ZR: 3D  L+R+START: sound", 0, 0);
 
   r_text(12, 200, 11, COL_GREEN, "BlockOut II 2.5 GPL - Jean-Luc PONS", 0, 0);
-  snprintf(buf, sizeof(buf), "facce %s", g->transparent ? "trasparenti" : "opache");
+  snprintf(buf, sizeof(buf), "faces %s", g->transparent ? "transparent" : "opaque");
   r_text(308, 200, 11, COL_GRAY, buf, 2, 0);
 }
 

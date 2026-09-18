@@ -165,12 +165,12 @@ enum {
 };
 
 static const char *menuItems[] = {
-  "Nuova partita",
-  "Pratica",
+  "New Game",
+  "Practice",
   "Demo",
-  "Configurazione",
-  "Migliori punteggi",
-  "Esci"
+  "Setup",
+  "High Scores",
+  "Exit"
 };
 #define MENU_NB 6
 
@@ -179,7 +179,7 @@ static void drawMenu(int sel) {
   for (int eye = 0; eye < 2; eye++) {
     render_begin_top(eye);
     r_text(200.0f, 24.0f, 34.0f, COL_GREEN, "BLOCKOUT", 1, 0);
-    r_text(200.0f, 66.0f, 13.0f, COL_GRAY,  "dal DOS originale (BlockOut II 2.5)", 1, 0);
+    r_text(200.0f, 66.0f, 13.0f, COL_GRAY,  "from the original DOS game (BlockOut II 2.5)", 1, 0);
     for (int i = 0; i < MENU_NB; i++) {
       uint32_t c = (i == sel) ? COL_WHITE : COL_GRAY;
       float yy = 100.0f + i * 22.0f;
@@ -196,15 +196,15 @@ static void drawMenu(int sel) {
   render_begin_bottom();
   r_rect(0.0f, 0.0f, BOTW, 240.0f, COL_BLACK);
   r_text(160.0f, 18.0f, 15.0f, COL_GREEN, "BlockOut 3DS", 1, 0);
-  r_text(160.0f, 46.0f, 12.0f, COL_WHITE, "crostiera: scegli", 1, 0);
-  r_text(160.0f, 64.0f, 12.0f, COL_WHITE, "A: conferma   B: esci", 1, 0);
-  r_text(160.0f, 104.0f, 12.0f, COL_GREEN, "Comandi di gioco", 0, 0);
-  r_text(8.0f, 124.0f, 12.0f, COL_WHITE, "crostiera/levetta: muovi il pezzo", 0, 0);
-  r_text(8.0f, 142.0f, 12.0f, COL_WHITE, "L + crostiera: diagonali", 0, 0);
-  r_text(8.0f, 160.0f, 12.0f, COL_WHITE, "A: fa' cadere   B/X/Y: ruota", 0, 0);
-  r_text(8.0f, 178.0f, 12.0f, COL_WHITE, "R + B/X/Y: rotazione inversa", 0, 0);
-  r_text(8.0f, 196.0f, 12.0f, COL_WHITE, "START: pausa   SELECT: esci", 0, 0);
-  r_text(8.0f, 214.0f, 12.0f, COL_WHITE, "ZR: 3D   L+R+START: audio", 0, 0);
+  r_text(160.0f, 46.0f, 12.0f, COL_WHITE, "D-pad: select", 1, 0);
+  r_text(160.0f, 64.0f, 12.0f, COL_WHITE, "A: confirm   B: exit", 1, 0);
+  r_text(160.0f, 104.0f, 12.0f, COL_GREEN, "Game controls", 0, 0);
+  r_text(8.0f, 124.0f, 12.0f, COL_WHITE, "D-pad/stick: move piece", 0, 0);
+  r_text(8.0f, 142.0f, 12.0f, COL_WHITE, "L + D-pad: diagonals", 0, 0);
+  r_text(8.0f, 160.0f, 12.0f, COL_WHITE, "A: drop   B/X/Y: rotate", 0, 0);
+  r_text(8.0f, 178.0f, 12.0f, COL_WHITE, "R + B/X/Y: reverse rotation", 0, 0);
+  r_text(8.0f, 196.0f, 12.0f, COL_WHITE, "START: pause   SELECT: exit", 0, 0);
+  r_text(8.0f, 214.0f, 12.0f, COL_WHITE, "ZR: 3D   L+R+START: sound", 0, 0);
   render_flush();
   render_swap(true);
 }
@@ -242,14 +242,14 @@ struct SetupRow {
   const char *desc;
 };
 static const SetupRow setupRows[] = {
-  { "Larghezza",   "POZZO",   "Larghezza del pozzo (3-7)" },
-  { "Altezza",     NULL,      "Altezza del pozzo (3-7)" },
-  { "Profondita'", NULL,      "Profondita' del pozzo (6-18)" },
-  { "Set di pezzi","BLOCCHI", "FLAT, BASIC o EXTENDED" },
-  { "Facce",       NULL,      "Facce trasparenti (0 = opache)" },
-  { "Velocita'",   "PARTITA", "Velocita' di caduta (0-10)" },
-  { "Livello",     NULL,      "Livello di partenza (0-9)" },
-  { "Suono",       "AUDIO",   "Musica ed effetti (SI/NO)" },
+  { "Width",    "PIT",    "Pit width (3-7)" },
+  { "Height",   NULL,     "Pit height (3-7)" },
+  { "Depth",    NULL,     "Pit depth (6-18)" },
+  { "Piece set","BLOCKS", "FLAT, BASIC or EXTENDED" },
+  { "Faces",    NULL,     "Transparent faces (0 = opaque)" },
+  { "Speed",    "GAME",   "Drop speed (0-10)" },
+  { "Level",    NULL,     "Starting level (0-9)" },
+  { "Sound",    "AUDIO",  "Music and effects (ON/OFF)" },
 };
 #define SETUP_NB 8
 
@@ -262,7 +262,7 @@ static void setupValueText(int idx, char *buf, size_t n) {
     case 4: snprintf(buf, n, "%d", setupManager.GetTransparentFace()); break;
     case 5: snprintf(buf, n, "%d", setupManager.GetAnimationSpeed()); break;
     case 6: snprintf(buf, n, "%d", setupManager.GetStartingLevel()); break;
-    case 7: snprintf(buf, n, "%s", setupManager.GetSound() ? "SI" : "NO"); break;
+    case 7: snprintf(buf, n, "%s", setupManager.GetSound() ? "ON" : "OFF"); break;
     default: snprintf(buf, n, "-"); break;
   }
 }
@@ -271,7 +271,7 @@ static void drawSetupPage(int sel) {
   render_clear(COL_BG);
   for (int eye = 0; eye < 2; eye++) {
     render_begin_top(eye);
-    r_text(200.0f, 6.0f, 22.0f, COL_GREEN, "CONFIGURAZIONE", 1, 0);
+    r_text(200.0f, 6.0f, 22.0f, COL_GREEN, "SETUP", 1, 0);
 
     float y = 40.0f;
     char val[24];
@@ -305,10 +305,10 @@ static void drawSetupPage(int sel) {
   }
   render_begin_bottom();
   r_rect(0.0f, 0.0f, BOTW, 240.0f, COL_BLACK);
-  r_text(160.0f, 20.0f, 15.0f, COL_GREEN, "Configurazione", 1, 0);
-  r_text(160.0f, 48.0f, 12.0f, COL_WHITE, "D-pad su/giu: voce", 1, 0);
-  r_text(160.0f, 66.0f, 12.0f, COL_WHITE, "D-pad sx/dx: valore", 1, 0);
-  r_text(160.0f, 84.0f, 12.0f, COL_WHITE, "A: salva    B: annulla", 1, 0);
+  r_text(160.0f, 20.0f, 15.0f, COL_GREEN, "Setup", 1, 0);
+  r_text(160.0f, 48.0f, 12.0f, COL_WHITE, "D-pad up/down: item", 1, 0);
+  r_text(160.0f, 66.0f, 12.0f, COL_WHITE, "D-pad left/right: value", 1, 0);
+  r_text(160.0f, 84.0f, 12.0f, COL_WHITE, "A: save    B: cancel", 1, 0);
   r_line(24.0f, 112.0f, 296.0f, 112.0f, 1.0f, COL_GRAY);
   r_text(160.0f, 124.0f, 13.0f, COL_WHITE, setupRows[sel].label, 1, 0);
   r_text(160.0f, 144.0f, 12.0f, COL_GREEN, setupRows[sel].desc, 1, 0);
@@ -397,20 +397,20 @@ static void runHiScorePage(void) {
     render_clear(COL_BG);
     for (int eye = 0; eye < 2; eye++) {
       render_begin_top(eye);
-      r_text(200.0f, 30.0f, 26.0f, COL_GREEN, "MIGLIORI PUNTEGGI", 1, 0);
+      r_text(200.0f, 30.0f, 26.0f, COL_GREEN, "HIGH SCORES", 1, 0);
       char buf[80];
-      snprintf(buf, sizeof(buf), "%s", best.name[0] ? best.name : "(nessun punteggio)");
+      snprintf(buf, sizeof(buf), "%s", best.name[0] ? best.name : "(no scores yet)");
       r_text(200.0f, 90.0f, 18.0f, COL_WHITE, buf, 1, 0);
-      snprintf(buf, sizeof(buf), "%d punti  -  livello %d", (int)best.score, (int)best.startLevel);
+      snprintf(buf, sizeof(buf), "%d points  -  level %d", (int)best.score, (int)best.startLevel);
       r_text(200.0f, 120.0f, 15.0f, COL_WHITE, buf, 1, 0);
-      snprintf(buf, sizeof(buf), "%d cubi  -  %s", (int)best.nbCube,
+      snprintf(buf, sizeof(buf), "%d cubes  -  %s", (int)best.nbCube,
                setupManager.GetBlockSetName());
       r_text(200.0f, 146.0f, 15.0f, COL_GRAY, buf, 1, 0);
       render_flush();
     }
     render_begin_bottom();
     r_rect(0.0f, 0.0f, BOTW, 240.0f, COL_BLACK);
-    r_text(160.0f, 100.0f, 14.0f, COL_WHITE, "A o B: indietro", 1, 0);
+    r_text(160.0f, 100.0f, 14.0f, COL_WHITE, "A or B: back", 1, 0);
     render_flush();
     render_swap(true);
 
