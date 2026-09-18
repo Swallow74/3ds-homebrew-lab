@@ -1,0 +1,26 @@
+# build 3DS
+project/*/build/
+project/*/output/
+*.elf
+*.3dsx
+*.smdh
+*.cia
+*.3ds
+*.cci
+*.bnr
+*.icn
+*.zip
+*.map
+
+# macOS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# toolchain locale (grossi, riscaricabili)
+dl/*.pkg
+dl/azahar-macos-arm64-2126.1.1/
+!dl/.gitkeep
+
+# stato sessioni agent (dipendenze + memoria locale)
+.opencode/
