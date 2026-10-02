@@ -9,9 +9,9 @@
   the Free Software Foundation; either version 2 of the License, or
   (at your option) any later version.
 
-  Le opzioni "hardware" dell'originale (risoluzione, fullscreen, frame limit,
-  HTTP/proxy) non esistono sul 3DS e sono state eliminate.  Il formato dei
-  file su SD (setup.dat / hscore.dat) segue la struttura dell'originale.
+  The original's "hardware" options (resolution, fullscreen, frame limit,
+  HTTP/proxy) do not exist on the 3DS and were removed.  The format of the
+  files on the SD card (setup.dat / hscore.dat) follows the original's structure.
 */
 
 #ifndef SETUPMANAGERH
@@ -73,7 +73,7 @@ public:
   void SetSoundType(int stype);
   int GetSoundType();
 
-  // Opzioni del port 3DS (campi accodati a setup.dat, facoltativi)
+  // 3DS port options (fields appended to setup.dat, optional)
   void SetMusic(BOOL on);
   BOOL GetMusic();
   void SetPieceFill(int on);
@@ -93,7 +93,7 @@ public:
   void SaveHighScore();
   void WriteSetup();
 
-  // Control keys (i codici sono quelli storici QWERTY: Q/W/E A/S/D)
+  // Control keys (the codes are the historical QWERTY ones: Q/W/E A/S/D)
   BYTE GetKRx1();
   BYTE GetKRy1();
   BYTE GetKRz1();
@@ -101,7 +101,7 @@ public:
   BYTE GetKRy2();
   BYTE GetKRz2();
 
-  // Per il 3DS: numero di setup memorizzabili nella Hall of Fame
+  // For the 3DS: number of setups that can be stored in the Hall of Fame
   int GetNbHighScore(int id);
 
 private:

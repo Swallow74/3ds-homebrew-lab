@@ -9,10 +9,10 @@
   the Free Software Foundation; either version 2 of the License, or
   (at your option) any later version.
 
-  Questa testata sostituisce Types.h dell'originale (Windows/SDL/OpenGL) con
-  equivalenti per devkitARM + citro2d.  Nomi e valori delle costanti sono
-  IDENTICI a Types.h di BlockOut II 2.5: cosi' Game.cpp / Pit.cpp /
-  PolyCube.cpp / BotPlayer*.cpp restano invariati.
+  This header replaces the original's Types.h (Windows/SDL/OpenGL) with
+  equivalents for devkitARM + citro2d.  Constant names and values are
+  IDENTICAL to Types.h of BlockOut II 2.5: this way Game.cpp / Pit.cpp /
+  PolyCube.cpp / BotPlayer*.cpp stay unchanged.
 */
 
 #ifndef _BO_COMPAT_H_
@@ -26,10 +26,10 @@
 #include <stdio.h>
 #include <stdint.h>
 
-/* STR(x) dell'originale (stringhe "localizzate"): qui e' passante. */
+/* the original's STR(x) ("localized" strings): a pass-through here. */
 #define STR(x) ((char *)x)
 
-/* --- tipi base ----------------------------------------------------------- */
+/* --- base types ----------------------------------------------------------- */
 
 typedef unsigned char  BYTE;
 typedef unsigned char  BOOL;
@@ -48,12 +48,12 @@ typedef uint32_t       uint32;
 #define FALSE 0
 #endif
 
-/* Valori identici a GLApp.h dell'originale (GL_OK = 1, GL_FAIL = 0):
-   i chiamanti del tipo "if( !Create(...) ) exit(0);" dipendono da questo. */
+/* Values identical to the original's GLApp.h (GL_OK = 1, GL_FAIL = 0):
+   callers of the "if( !Create(...) ) exit(0);" kind depend on this. */
 #define GL_OK   1
 #define GL_FAIL 0
 
-/* --- costanti (identiche a Types.h) -------------------------------------- */
+/* --- constants (identical to Types.h) -------------------------------------- */
 
 #define PI              3.1415926535f
 
@@ -62,7 +62,7 @@ typedef uint32_t       uint32;
 #define MAX_CUBE        50
 #define NB_POLYCUBE     41
 
-/* dimensioni del pozzo */
+/* pit dimensions */
 #define MAX_PITWIDTH    7
 #define MAX_PITHEIGHT   7
 #define MAX_PITDEPTH    18
@@ -70,49 +70,49 @@ typedef uint32_t       uint32;
 #define MIN_PITHEIGHT   3
 #define MIN_PITDEPTH    6
 
-/* set di blocchi */
+/* block sets */
 #define BLOCKSET_FLAT      0
 #define BLOCKSET_BASIC     1
 #define BLOCKSET_EXTENDED  2
 #define NB_BLOCKSET        3
 
-/* velocita' di animazione */
+/* animation speed */
 #define ASPEED_SLOW    0
 #define ASPEED_FAST    10
 #define NB_ASPEED      11
 
-/* trasparenza delle facce */
+/* face transparency */
 #define FTRANS_MIN     0
 #define FTRANS_MAX     10
 
-/* stati del gioco  (1..4 nell'originale) */
+/* game states (1..4 in the original) */
 #define GAME_PLAYING   1
 #define GAME_PAUSED    2
 #define GAME_OVER      3
 #define GAME_DEMO      4
 
-/* stile grafico */
+/* graphic style */
 #define STYLE_CLASSIC  0
 #define STYLE_MARBLE   1
 #define STYLE_ARCADE   2
 #define NB_STYLE       3
 
-/* tipo di suono */
+/* sound type */
 #define SOUND_BLOCKOUT2  0
 #define SOUND_BLOCKOUT   1
 #define NB_SOUND_TYPE    2
 
-/* larghezza linea (stile ARCADE) */
+/* line width (ARCADE style) */
 #define LINEW_MIN      0
 #define LINEW_MAX      10
 
-/* --- strutture di base --------------------------------------------------- */
+/* --- base structures --------------------------------------------------- */
 
 typedef struct { int x; int y; } POINT2D;
 
 typedef struct { float x; float y; float z; } VERTEX;
 
-/* GLApp.h: viewport e materiale (usati da Game.h / Pit.h) */
+/* GLApp.h: viewport and material (used by Game.h / Pit.h) */
 typedef struct { int x; int y; int width; int height; } GLVIEWPORT;
 typedef struct { float r; float g; float b; float a; } GLCOLOR;
 typedef struct {
@@ -148,7 +148,7 @@ typedef struct {
   int32 highScore;
 } PLAYER_INFO;
 
-/* --- util (Utils.cpp dell'originale) ------------------------------------- */
+/* --- util (the original's Utils.cpp) ------------------------------------- */
 
 extern VERTEX v(float x, float y, float z);
 extern void   Normalize(VERTEX *v);
@@ -156,11 +156,11 @@ extern int    fround(float x);
 extern char  *FormatTime(float seconds);
 extern void   ZeroMemory(void *buff, int size);
 
-/* --- codici dei tasti -----------------------------------------------------
-   L'originale indicizza keys[] (BYTE keys[512]) con i codici SDL. Nel port
-   main.cpp converte hidRead() in questi codici; i caratteri ASCII ('P','p',
-   le cifre 0..9 = 48..57) restano invariati perche' Game.cpp li confronta
-   direttamente. I codici SDL storici sono conservati per i tasti non ASCII.
+/* --- key codes -----------------------------------------------------
+   The original indexes keys[] (BYTE keys[512]) with SDL codes. In the port
+   main.cpp converts hidRead() into these codes; the ASCII characters ('P','p',
+   the digits 0..9 = 48..57) stay unchanged because Game.cpp compares them
+   directly. The historical SDL codes are kept for the non-ASCII keys.
 */
 
 #define BO_KEY_SPACE      32
@@ -174,10 +174,10 @@ extern void   ZeroMemory(void *buff, int size);
 #define BO_KEY_RIGHT     276
 #define BO_KEY_END       277
 #define BO_KEY_HOME      278
-#define BO_KEY_KP0       320    /* tastierino numerico: 0..9 = 320..329 */
-#define BO_KEY_LAST      512    /* dimensione dell'array keys[] */
+#define BO_KEY_KP0       320    /* keypad: 0..9 = 320..329 */
+#define BO_KEY_LAST      512    /* size of the keys[] array */
 
-/* tasti del 3DS tradotti nei codici sopra; questi sono extra (mappatura) */
+/* 3DS keys translated into the codes above; these are extras (mapping) */
 #define BO_KEY_CST_UP     340
 #define BO_KEY_CST_DOWN   341
 #define BO_KEY_CST_LEFT   342

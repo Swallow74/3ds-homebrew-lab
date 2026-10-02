@@ -11,28 +11,28 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
-/* Music: sequencer + sintetizzatore in tempo reale (stile Mega Drive /
- * arcade anni '80-'90).  Niente PCM pre-renderizzato: le canzoni sono
- * spartiti compatti (accordi + melodia) espansi al volo in basso FM, lead
- * a due oscillatori con glide e vibrato, campana FM, arpeggio a impulsi,
- * pad stereo filtrato, batteria sintetica ed eco ping-pong.
+/* Music: real-time sequencer + synthesizer (Mega Drive /
+ * '80s-'90s arcade style).  No pre-rendered PCM: the songs are
+ * compact scores (chords + melody) expanded on the fly into FM bass, two-
+ * oscillator lead with glide and vibrato, FM bell, pulse arpeggio,
+ * filtered stereo pad, synthetic drums and ping-pong echo.
  *
- * Sul 3DS gira in un thread proprio svegliato dalla callback NDSP e riempie
- * a rotazione pochi buffer corti su un solo canale: ~12 KB di linear memory
- * invece dei MB dei loop pre-calcolati, e canzoni lunghe un minuto. */
+ * On the 3DS it runs in its own thread woken by the NDSP callback and fills
+ * a few short buffers in rotation on a single channel: ~12 KB of linear memory
+ * instead of the MBs of pre-computed loops, and songs a minute long. */
 #pragma once
 #include <stdbool.h>
 #include <stdint.h>
 
 enum { MUS_TITLE, MUS_RUN, MUS_OVER, MUS_NUM };
 
-bool music_init(int channel);    /* dopo ndspInit() */
-void music_exit(void);           /* prima di ndspExit() */
-void music_play(int song);       /* cambio brano con dissolvenza breve */
-void music_enable(bool on);      /* on/off con dissolvenza (riprende da li') */
-void music_duck(bool on);        /* volume ridotto (pausa) */
+bool music_init(int channel);    /* after ndspInit() */
+void music_exit(void);           /* before ndspExit() */
+void music_play(int song);       /* song change with a short fade */
+void music_enable(bool on);      /* on/off with a fade (resumes from there) */
+void music_duck(bool on);        /* reduced volume (pause) */
 
-/* motore puro, usato anche dal test su PC (MUSIC_HOST) */
+/* pure engine, also used by the PC test (MUSIC_HOST) */
 void music_synth_init(void);
 void music_render(int16_t *out, int frames);   /* stereo interleaved */
-int  music_check(void);          /* 0 = spartiti coerenti */
+int  music_check(void);          /* 0 = scores consistent */

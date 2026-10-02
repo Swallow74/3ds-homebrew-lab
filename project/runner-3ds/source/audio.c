@@ -11,31 +11,31 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
-/* Audio NDSP (servizio DSP::DSP) - musica a loop + effetti sintetizzati.
+/* NDSP audio (DSP::DSP service) - looping music + synthesized effects.
  *
- * REGOLE FONDAMENTALI (fonte: libctru/source/ndsp/ndsp-channel.c):
- *   ndspChnWaveBufAdd() fa cos':
+ * FUNDAMENTAL RULES (source: libctru/source/ndsp/ndsp-channel.c):
+ *   ndspChnWaveBufAdd() does this:
  *       if (!buf->nsamples) return;
  *       if (buf->status == NDSP_WBUF_QUEUED || buf->status == NDSP_WBUF_PLAYING) return;
- *   Quindi NON bisogna MAI inizializzare ndspWaveBuf::status a QUEUED prima
- *   di chiamare ndspChnWaveBufAdd(): in quel caso la funzione non accoda
- *   nulla e non stampa errori -> silenzio totale. Lo status lo scrive
- *   libctru/DSP; noi lasciamo memset(...,0,...) che vale NDSP_WBUF_FREE.
+ *   So you must NEVER initialize ndspWaveBuf::status to QUEUED before
+ *   calling ndspChnWaveBufAdd(): in that case the function queues
+ *   nothing and prints no errors -> total silence. The status is written by
+ *   libctru/DSP; we leave memset(...,0,...) which equals NDSP_WBUF_FREE.
  *
- *   Inoltre ogni canale deve avere il PROPRIO ndspWaveBuf: con un solo
- *   wavebuf condiviso tra piu' canali, "buf->next = NULL" corromperebbe la
- *   lista del canale precedente.
+ *   Also every channel must have its OWN ndspWaveBuf: with a single
+ *   wavebuf shared among several channels, "buf->next = NULL" would corrupt the
+ *   previous channel's list.
  *
- *   I buffer PCM devono stare in linear memory (DSP::DSP legge RAM tramite
- *   MMU propria) + CacheFlush prima di avviarli.
+ *   The PCM buffers must be in linear memory (DSP::DSP reads RAM through its
+ *   own MMU) + CacheFlush before starting them.
  *
- * MUSICA: vedi music.c (sequencer + synth in tempo reale su CH_MUSIC,
- * thread proprio svegliato dalla callback NDSP).  Qui restano gli effetti.
+ * MUSIC: see music.c (real-time sequencer + synth on CH_MUSIC,
+ * its own thread woken by the NDSP callback).  Only the effects remain here.
  *
- * OSCILLATORE: tabella di 4096 punti con interpolazione lineare, invece di
- * sinf/asin chiamate per campione (lento su ARM11).  Le decadere sono rese
- * con un moltiplicatore per campione invece di exp() per campione: generare
- * ~3.6 milioni di campioni costa qualche decina di millisecondi, non secondi.
+ * OSCILLATOR: 4096-point table with linear interpolation, instead of
+ * sinf/asin called per sample (slow on the ARM11).  Decays are done
+ * with a per-sample multiplier instead of per-sample exp(): generating
+ * ~3.6 million samples costs a few tens of milliseconds, not seconds.
  */
 
 #include "audio.h"
@@ -46,26 +46,26 @@
 
 #define SR            22050                 /* SampleRate */
 #define CH_MUSIC      0
-#define NSFX          6                     /* canali effetti: 1..6 */
+#define NSFX          6                     /* effect channels: 1..6 */
 #define CH_SFX_BASE   1
-#define SFX_MAX       ((size_t)(SR * 0.45)) /* frames disponibili per effetto */
+#define SFX_MAX       ((size_t)(SR * 0.45)) /* frames available per effect */
 
 static bool     g_ok = false;
-static bool     g_musicPref = true;   /* scelta dell'utente (menu/SELECT) */
-static int      g_sfxParam = 0;       /* parametro dell'effetto (es. nota moneta) */
+static bool     g_musicPref = true;   /* user choice (menu/SELECT) */
+static int      g_sfxParam = 0;       /* effect parameter (e.g. coin note) */
 
 static s16        *g_sfxBuf[NSFX];
-static ndspWaveBuf g_sbuf[NSFX];    /* un wavebuf per canale effetto */
+static ndspWaveBuf g_sbuf[NSFX];    /* one wavebuf per effect channel */
 static int         g_sfxNext = 0;
 
-/* Mix verso fronte sinistra/destra (mix[0] = front L, mix[1] = front R):
- * identico all'esempio devkitPro/examples/3ds/audio/streaming. */
+/* Mix toward front left/right (mix[0] = front L, mix[1] = front R):
+ * identical to the devkitPro/examples/3ds/audio/streaming example. */
 static float s_mixStereo[12];
 
 /* ------------------------------------------------------------------ osc */
 
 #define OS_C 4096
-static double g_sin[OS_C + 1];   /* +1 punto: l'interpolazione non puo' sortir */
+static double g_sin[OS_C + 1];   /* +1 point: the interpolation cannot overrun */
 
 static void osc_init(void)
 {
@@ -73,7 +73,7 @@ static void osc_init(void)
 		g_sin[i] = sin((double)i * (2.0 * M_PI / (double)OS_C));
 }
 
-/* campione di sinusoide: ph in [0,1) = una fase intera */
+/* sine sample: ph in [0,1) = one whole phase */
 static double osc(double ph)
 {
 	double u = ph * (double)OS_C;
@@ -89,9 +89,9 @@ static int clamp_s(double v)
 	return v > 32767.0 ? 32767 : (v < -32768.0 ? -32768 : (int)v);
 }
 
-/* Accumula un campione in un buffer PCM16 stereo interleaved, con pan.
- * 'st' punta al campione sinistro; il destro e' subito dopo.
- * pan = -1 tutto a sinistra, +1 tutto a destra, 0 al centro (come prima). */
+/* Accumulates a sample into an interleaved stereo PCM16 buffer, with pan.
+ * 'st' points to the left sample; the right one follows immediately.
+ * pan = -1 all left, +1 all right, 0 center (as before). */
 static void mix_pan(s16 *st, double v, double gl, double gr)
 {
 	int l = (int)st[0] + clamp_s(v * gl);
@@ -100,12 +100,12 @@ static void mix_pan(s16 *st, double v, double gl, double gr)
 	st[1] = (s16)(r > 32767 ? 32767 : (r < -32768 ? -32768 : r));
 }
 
-/* guadagni di pan: spostano il canale senza cambiare il volume percepito */
+/* pan gains: move the channel without changing the perceived volume */
 static inline double gainL(double vol, double pan) { return vol * (1.0 - 0.35 * pan); }
 static inline double gainR(double vol, double pan) { return vol * (1.0 + 0.35 * pan); }
 
-/* Tono "chiptune": armoniche controllate + inviluppo attack/decay/release.
- * kind: 0 = lead (3 armoniche), 1 = basso, 2 = quadra morbida. */
+/* "Chiptune" tone: controlled harmonics + attack/decay/release envelope.
+ * kind: 0 = lead (3 harmonics), 1 = bass, 2 = soft square. */
 static void add_tone(s16 *st, size_t total, size_t start, double hz,
                      size_t len, double vol, double att, double rel,
                      int kind, double pan)
@@ -117,7 +117,7 @@ static void add_tone(s16 *st, size_t total, size_t start, double hz,
 	const double dph = hz / (double)SR;
 	const double gl = gainL(vol, pan);
 	const double gr = gainR(vol, pan);
-	const double dsl = exp(-8.5 / (double)SR); /* decay "a corda" per campione */
+	const double dsl = exp(-8.5 / (double)SR); /* "string-like" decay per sample */
 
 	double ph = 0.0, dec = 1.0;
 
@@ -147,14 +147,14 @@ static void add_tone(s16 *st, size_t total, size_t start, double hz,
 		default: v = osc(ph);
 		}
 
-		e *= 0.62 + 0.38 * dec;   /* identico a exp(-t*8.5), ma senza exp() */
+		e *= 0.62 + 0.38 * dec;   /* identical to exp(-t*8.5), but without exp() */
 		dec *= dsl;
 
 		mix_pan(st + 2 * i, v * e * 32000.0, gl, gr);
 	}
 }
 
-/* Spazzata di frequenza lineare f0 -> f1. */
+/* Linear frequency sweep f0 -> f1. */
 static void add_sweep(s16 *st, size_t total, size_t start, double f0, double f1,
                       double dur, double vol, int kind, double pan)
 {
@@ -184,7 +184,7 @@ static void add_sweep(s16 *st, size_t total, size_t start, double f0, double f1,
 	}
 }
 
-/* Rumore con passa-alto semplice e decadimento esponenziale. */
+/* Noise with a simple high-pass and exponential decay. */
 static void add_noise(s16 *st, size_t total, size_t start, double dur,
                       double vol, double decay, double pan)
 {
@@ -210,7 +210,7 @@ static void add_noise(s16 *st, size_t total, size_t start, double dur,
 	}
 }
 
-/* Cassa: sinuside che scende rapida + click. */
+/* Kick drum: fast-falling sine + click. */
 static void add_kick(s16 *st, size_t total, size_t start, double vol, double pan)
 {
 	size_t len = (size_t)(SR * 0.10);
@@ -237,7 +237,7 @@ static void add_kick(s16 *st, size_t total, size_t start, double vol, double pan
 	}
 }
 
-/* ------------------------------------------------------------------ effetti */
+/* ------------------------------------------------------------------ effects */
 
 enum { SX_MOVE, SX_JUMP, SX_BONUS, SX_CRASH, SX_START, SX_COIN, SX_POWER,
        SX_SHIELD, SX_SELECT, SX_GO, SX_NUM };
@@ -290,8 +290,8 @@ static void gen_sfx(s16 *st, int type)
 	}
 
 	case SX_COIN: {
-		/* "ding" a due note (quarta sopra): la catena alza il tono di un
-		 * semitono per moneta, fino a un'ottava */
+		/* two-note "ding" (a fourth above): the chain raises the pitch by a
+		 * semitone per coin, up to an octave */
 		double k = pow(2.0, (double)g_sfxParam / 12.0);
 		add_tone(st, total, 0, 1318.5 * k, (size_t)(SR * 0.05), 0.20, 0.001,
 		         0.02, 2, -0.10);
@@ -336,7 +336,7 @@ static void gen_sfx(s16 *st, int type)
 	}
 }
 
-/* durata utile (in frame) di ogni effetto */
+/* useful duration (in frames) of each effect */
 static size_t sfx_len(int type)
 {
 	switch (type) {
@@ -353,7 +353,7 @@ static size_t sfx_len(int type)
 	}
 }
 
-/* Restituisce un canale effetto libero (gia' terminato), -1 se occupati tutti. */
+/* Returns a free effect channel (already finished), -1 if all are busy. */
 static int free_sfx_slot(void)
 {
 	for (int k = 0; k < NSFX; k++)
@@ -369,8 +369,8 @@ static int free_sfx_slot(void)
 	return -1;
 }
 
-/* force: se tutti i canali suonano, ruba il prossimo in round-robin
- * (serve per il crash, che non deve mai sparire sotto una pioggia di monete) */
+/* force: if all channels are playing, steal the next one round-robin
+ * (needed for the crash, which must never vanish under a rain of coins) */
 static void sfx_play_ex(int type, bool force)
 {
 	if (!g_ok) return;
@@ -384,18 +384,18 @@ static void sfx_play_ex(int type, bool force)
 
 	int ch = CH_SFX_BASE + s;
 
-	/* Il canale e' fermo (o rubato): svuotarlo ripulisce lo stato DSP. */
+	/* The channel is stopped (or stolen): clearing it resets the DSP state. */
 	ndspChnWaveBufClear(ch);
 
-	/* memset => status = NDSP_WBUF_FREE (0). NON scrivere QUEUED qui! */
+	/* memset => status = NDSP_WBUF_FREE (0). Do NOT write QUEUED here! */
 	memset(&g_sbuf[s], 0, sizeof(ndspWaveBuf));
 	gen_sfx(g_sfxBuf[s], type);
 	g_sbuf[s].data_pcm16 = g_sfxBuf[s];
 	g_sbuf[s].nsamples   = sfx_len(type);
 	g_sbuf[s].looping = false;
 
-	/* Flush dell'intero buffer: 64 byte allineato e size multipla di 8,
-	 * cosi' la cache del DSP non lascia righe parziali non scritte. */
+	/* Flush of the whole buffer: 64-byte aligned and size a multiple of 8,
+	 * so the DSP cache leaves no partial unwritten lines. */
 	DSP_FlushDataCache(g_sfxBuf[s], SFX_MAX * 2 * sizeof(s16));
 	ndspChnWaveBufAdd(ch, &g_sbuf[s]);
 }
@@ -420,7 +420,7 @@ void audio_init(void)
 	for (int s = 0; s < NSFX; s++)
 		if (!g_sfxBuf[s]) { ndspExit(); return; }
 
-	osc_init();                       /* prima di generare qualsiasi PCM */
+	osc_init();                       /* before generating any PCM */
 	for (int s = 0; s < NSFX; s++)
 	{
 		memset(&g_sbuf[s], 0, sizeof(ndspWaveBuf));
@@ -428,7 +428,7 @@ void audio_init(void)
 		g_sbuf[s].nsamples   = 0;
 	}
 
-	/* PCM16 stereo interleaved su tutti i canali usati */
+	/* interleaved stereo PCM16 on all the channels used */
 	s_mixStereo[0] = 1.0f;   /* front left  */
 	s_mixStereo[1] = 1.0f;   /* front right */
 	for (int ch = 0; ch <= NSFX; ch++)
@@ -440,7 +440,7 @@ void audio_init(void)
 	}
 
 	g_ok = true;
-	/* la musica parte subito (tema del titolo) se l'utente la vuole */
+	/* music starts right away (title theme) if the user wants it */
 	music_enable(g_musicPref);
 	music_play(MUS_TITLE);
 	music_init(CH_MUSIC);
@@ -450,14 +450,14 @@ void audio_exit(void)
 {
 	if (!g_ok) return;
 	g_ok = false;
-	music_exit();            /* prima il thread della musica */
-	/* ferma e svuota TUTTI i canali prima di chiudere il DSP: uscire con
-	 * wavebuf ancora in coda (musica in loop) puo' bloccare la console */
+	music_exit();            /* the music thread first */
+	/* stop and flush ALL the channels before closing the DSP: exiting with
+	 * wavebufs still queued (looping music) can hang the console */
 	for (int ch = 0; ch <= CH_SFX_BASE + NSFX - 1; ch++) {
 		ndspChnWaveBufClear(ch);
 		ndspChnReset(ch);
 	}
-	svcSleepThread(50000000LL);     /* 50 ms: il DSP completa l'ultimo frame */
+	svcSleepThread(50000000LL);     /* 50 ms: the DSP completes the last frame */
 	ndspExit();
 	for (int k = 0; k < NSFX; k++)
 		if (g_sfxBuf[k]) { linearFree(g_sfxBuf[k]); g_sfxBuf[k] = NULL; }

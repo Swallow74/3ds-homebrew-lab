@@ -36,7 +36,7 @@ public:
   int    GetGhost();
   BLOCKITEM *GetCubes();
 
-  // Spigoli del polycube (Create() originale: edges[] con IsEdgeVisible)
+  // Polycube edges (original Create(): edges[] with IsEdgeVisible)
   EDGE *GetEdges();
   int   GetNbEdge();
 
@@ -77,7 +77,7 @@ public:
   BOOL FindCube(int x, int y, int z);
 
 private:
-  // Calcolo degli spigoli visibili (identico all'originale PolyCube.cpp)
+  // Computation of the visible edges (identical to the original PolyCube.cpp)
   BOOL EdgeExist(EDGE e);
   BOOL EdgeEqual(EDGE e1, EDGE e2);
   BOOL IsEdgeVisible(int cubeIdx, int edge);

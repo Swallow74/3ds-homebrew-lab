@@ -10,10 +10,10 @@ TOPDIR ?= $(CURDIR)
 include $(DEVKITARM)/3ds_rules
 
 #---------------------------------------------------------------------------------
-# TARGET  = nome output (default: nome cartella -> output/<nome>.3dsx/.cia/.3ds)
-# SOURCES = cartelle sorgenti C/C++/asm · DATA = file binari · INCLUDES = header
-# GRAPHICS = .t3s -> .t3x (tex3ds) · ROMFS = cartella romfs inclusa nel .3dsx
-# RESOURCES = AppInfo + template.rsf + icon.png (+ banner/audio opzionali per .cia)
+# TARGET  = output name (default: folder name -> output/<name>.3dsx/.cia/.3ds)
+# SOURCES = C/C++/asm source folders · DATA = binary files · INCLUDES = headers
+# GRAPHICS = .t3s -> .t3x (tex3ds) · ROMFS = romfs folder included in the .3dsx
+# RESOURCES = AppInfo + template.rsf + icon.png (+ optional banner/audio for .cia)
 #---------------------------------------------------------------------------------
 TARGET      := $(notdir $(CURDIR))
 BUILD       := build

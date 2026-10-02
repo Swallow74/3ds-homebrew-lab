@@ -1,6 +1,6 @@
 /*
   File:        main.cpp
-  Description: Entry point 3DS (avvio hardware, input, menu, loop di gioco)
+  Description: 3DS entry point (hardware startup, input, menus, game loop)
   Program:     BlockOut / BlockOut 3DS
   Author:      Jean-Luc PONS
 
@@ -9,18 +9,18 @@
   the Free Software Foundation; either version 2 of the License, or
   (at your option) any later version.
 
-  Adattamenti richiesti dall'hardware 3DS (documentati):
-   * il gamepad sostituisce la tastiera: crostiera/levetta (e crostiera + L
-     per le diagonali storiche 1/3, 3/1, 7/9 del tastierino) muovono il
-     pezzo, A lo fa cadere, B/X/Y ruotano attorno a Z/X/Y (con R le rotazioni
-     inverse), START pausa/conferma, SELECT interrompe;
-   * i codici tasto passati a Game::Process() restano quelli storici
-     (KEY_UP..KEY_PAGEDOWN + Q W E / A S D per le rotazioni), cosi' il
-     HandleKey() dell'originale funziona immutato;
-   * menu e pagina di configurazione disegnati con il renderer software
-     (l'originale usava le pagine SDL/OpenGL);
-   * profondita' stereoscopica regolabile (ZR), aiuto in pratica (ZL);
-   * colonna sonora in tempo reale (music.c): menu, gioco, fine partita.
+  Adaptations required by the 3DS hardware (documented):
+   * the gamepad replaces the keyboard: D-pad/circle pad (and D-pad + L
+     for the historical 1/3, 3/1, 7/9 keypad diagonals) move the
+     piece, A drops it, B/X/Y rotate around Z/X/Y (with R the reverse
+     rotations), START pause/confirm, SELECT aborts;
+   * the key codes passed to Game::Process() stay the historical ones
+     (KEY_UP..KEY_PAGEDOWN + Q W E / A S D for the rotations), so the
+     original HandleKey() works unchanged;
+   * menus and the configuration page are drawn with the software renderer
+     (the original used the SDL/OpenGL pages);
+   * adjustable stereoscopic depth (ZR), practice hint (ZL);
+   * real-time soundtrack (music.c): menu, game, game over.
 */
 
 #include <3ds.h>
@@ -31,9 +31,9 @@
 #include <time.h>
 #include <math.h>
 
-/* Costanti dei pulsanti (i nomi di libctru vengono qui tradotti in HK_*:
-   i codici tasto dell'originale vivono in bo_compat.h con prefisso BO_KEY_,
-   perche' l'enum di hid.h usa gli stessi nomi KEY_A/KEY_L/KEY_UP...). */
+/* Button constants (the libctru names are translated here into HK_*:
+   the original's key codes live in bo_compat.h with the BO_KEY_ prefix,
+   because the hid.h enum uses the same names KEY_A/KEY_L/KEY_UP...). */
 static const u32 HK_A      = KEY_A;
 static const u32 HK_B      = KEY_B;
 static const u32 HK_X      = KEY_X;
@@ -44,7 +44,7 @@ static const u32 HK_ZL     = KEY_ZL;
 static const u32 HK_ZR     = KEY_ZR;
 static const u32 HK_START  = KEY_START;
 static const u32 HK_SELECT = KEY_SELECT;
-static const u32 HK_UP     = KEY_UP;      /* crostiera o levetta */
+static const u32 HK_UP     = KEY_UP;      /* D-pad or circle pad */
 static const u32 HK_DOWN   = KEY_DOWN;
 static const u32 HK_LEFT   = KEY_LEFT;
 static const u32 HK_RIGHT  = KEY_RIGHT;
@@ -81,7 +81,7 @@ static void pollInput(void) {
   hkPressed = hidKeysDown();
 }
 
-/* Applica le opzioni del Setup ai moduli del port */
+/* Applies the Setup options to the port's modules */
 static void applySetup(void) {
   soundManager.SetEnable(setupManager.GetSound() ? TRUE : FALSE);
   audio_set_enable(setupManager.GetSound() ? true : false);
@@ -92,18 +92,18 @@ static void applySetup(void) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Traduzione gamepad -> codici tasto dell'originale                    */
+/* Gamepad -> original key codes translation                           */
 /* ------------------------------------------------------------------ */
 
-/* keys[] viene letta da Game::HandleKey(), che azzera le voci consumate:
-   esattamente il comportamento della tastiera originale (pressione singola =
-   una colonna). Su PC la ripetizione e' data dall'OS (~2-3 Hz dopo un ritardo
-   iniziale); qui fillGameKeys() riceveva hkHeld e muoveva il pezzo OGNI FRAME
-   a 60 Hz: anche un tocco breve (~5 frame) attraversava tutto il pozzo.
-   Ora: scatto immediato su hkPressed + ripetizione con ritardo iniziale se
-   il tasto resta tenuto. */
-#define MOVE_DELAY_INITIAL 0.22f   /* s prima che parta la ripetizione */
-#define MOVE_DELAY_REPEAT  0.11f   /* s tra uno scatto e l'altro da tenuto */
+/* keys[] is read by Game::HandleKey(), which clears the consumed entries:
+   exactly the behavior of the original keyboard (single press =
+   one column). On a PC the repeat is provided by the OS (~2-3 Hz after an initial
+   delay); here fillGameKeys() used to receive hkHeld and moved the piece EVERY FRAME
+   at 60 Hz: even a short tap (~5 frames) crossed the whole pit.
+   Now: immediate step on hkPressed + repeat with an initial delay if
+   the key stays held. */
+#define MOVE_DELAY_INITIAL 0.22f   /* s before the repeat starts */
+#define MOVE_DELAY_REPEAT  0.11f   /* s between one step and the next while held */
 #define ROT_DELAY_INITIAL  0.25f
 #define ROT_DELAY_REPEAT   0.15f
 
@@ -136,14 +136,14 @@ static void fillGameKeys(u32 held, u32 pressed, float now) {
                   MOVE_DELAY_INITIAL, MOVE_DELAY_REPEAT))
     keys[combo ? BO_KEY_PAGEDOWN : BO_KEY_RIGHT] = 1;
 
-  /* caduta: solo su pressione, non da tenuto (altrimenti restando su A
-     cadrebbe istantaneamente anche il pezzo successivo) */
+  /* fall: only on press, not while held (otherwise holding A
+     would instantly drop the next piece as well) */
   if (pressed & HK_A) keys[BO_KEY_SPACE] = 1;
 
-  /* rotazioni: i codici storici Q/W/E (Rx1 Ry1 Rz1) e A/S/D (Rx2 Ry2 Rz2),
-     letti da Game::HandleKey() tramite SetupManager. Con R premuto vale
-     SOLO la rotazione inversa (prima entrambe venivano impostate e la
-     diretta vinceva sempre, rendendo R inutile). */
+  /* rotations: the historical codes Q/W/E (Rx1 Ry1 Rz1) and A/S/D (Rx2 Ry2 Rz2),
+     read by Game::HandleKey() through SetupManager. With R held only the
+     REVERSE rotation applies (before, both were set and the
+     direct one always won, making R useless). */
   int inv = (held & HK_R) ? 1 : 0;
   if (repeatAllow(&rotNext[0], HK_B, held, pressed, now,
                   ROT_DELAY_INITIAL, ROT_DELAY_REPEAT))
@@ -155,17 +155,17 @@ static void fillGameKeys(u32 held, u32 pressed, float now) {
                   ROT_DELAY_INITIAL, ROT_DELAY_REPEAT))
     keys[inv ? setupManager.GetKRy2() : setupManager.GetKRy1()] = 1;
 
-  /* aiuto nella modalita' pratica: solo su pressione */
+  /* practice-mode hint: only on press */
   if (pressed & HK_CST_UP) keys['H'] = 1;
 }
 
 enum { ACT_NONE = 0, ACT_PLAY, ACT_PRACTICE, ACT_DEMO };
 
 /* ------------------------------------------------------------------ */
-/* Partita                                                             */
+/* Game                                                                */
 /* ------------------------------------------------------------------ */
 
-/* Ritorna 1 se l'utente vuole uscire dall'app */
+/* Returns 1 if the user wants to leave the app */
 static int runGamePlay(int act) {
 
   int leave = 0;
@@ -200,7 +200,7 @@ static int runGamePlay(int act) {
           else if (fTime - atOver > 9.0f) { keys[BO_KEY_RETURN] = 1; atOver = 0.0f; }
         } else atOver = 0.0f;
       }
-      /* input casuale: riempie il pozzo in fretta (prova della grafica) */
+      /* random input: fills the pit quickly (graphics test) */
       if (act != ACT_DEMO && game.GetGameMode() == GAME_PLAYING) {
         static float atNext = 0.0f;
         static int atPaused = 0;
@@ -217,27 +217,27 @@ static int runGamePlay(int act) {
       }
 #endif
 
-      /* START: pausa/ripresa, a fine partita torna al menu */
+      /* START: pause/resume, back to the menu at the end of a game */
       if (hkPressed & HK_START) {
         int gm = game.GetGameMode();
         if (gm == GAME_PLAYING || gm == GAME_PAUSED) keys['P'] = 1;
-        else if (gm == GAME_DEMO) keys[BO_KEY_ESCAPE] = 1;   /* START ferma la demo */
+        else if (gm == GAME_DEMO) keys[BO_KEY_ESCAPE] = 1;   /* START stops the demo */
         else keys[BO_KEY_RETURN] = 1;
       }
-      /* SELECT: interrompe la partita (come ESC originale) */
+      /* SELECT: aborts the game (like the original ESC) */
       if (hkPressed & HK_SELECT) keys[BO_KEY_ESCAPE] = 1;
 
-      /* ZL: aiuto in pratica */
+      /* ZL: practice hint */
       if (hkPressed & HK_ZL) keys['H'] = 1;
 
-      /* ZR: profondita' stereoscopica a scatti (OFF, 1..4), salvata */
+      /* ZR: stepped stereoscopic depth (OFF, 1..4), saved */
       if (hkPressed & HK_ZR) {
         setupManager.SetStereo((setupManager.GetStereo() + 1) % 5);
         render_set_stereo(stereoLevelPx(setupManager.GetStereo()));
         audio_blub();
       }
 
-      /* colonna sonora: brano di gioco, jingle alla fine */
+      /* soundtrack: game track, jingle at the end */
       int gmNow = game.GetGameMode();
       if (gmNow == GAME_OVER && lastMode != GAME_OVER) audio_music(MUS_OVER);
       lastMode = gmNow;
@@ -247,16 +247,16 @@ static int runGamePlay(int act) {
       render_clear(COL_BG);
       game.Render();
 
-      /* Il gioco si e' congelato da solo: sopra il pozzo fermo compare il
-         menu di pausa (toccare una riga sullo schermo basso).  Riprendere
-         manda di nuovo 'P': Process() recupera il tempo di pausa sugli
-         timestamp, come nell'originale. */
+      /* The game froze by itself: the pause menu appears above the stopped pit
+         (touch a row on the bottom screen).  Resuming
+         sends 'P' again: Process() recovers the pause time from the
+         timestamps, as in the original. */
       if (exitValue2 == 0 && game.GetGameMode() == GAME_PAUSED) {
         render_swap(true);
         int pr = runPauseMenu(&game);
         if (pr == 0) {
-          /* esce come ESC dell'originale: riprende e interrompe, cosi'
-             Game registra il tempo e sceglie 1 (partita) o 2 (pratica) */
+          /* exits like the original ESC: resumes and aborts, so
+             Game records the time and chooses 1 (game) or 2 (practice) */
           memset(keys, 0, sizeof(keys));
           keys['P'] = 1;
           game.Process(keys, getTime());
@@ -284,7 +284,7 @@ static int runGamePlay(int act) {
       if (!game.GetInited()) break;
     }
 
-    /* come BlockOut.cpp:171 - solo la partita vera entra in classifica */
+    /* as in BlockOut.cpp:171 - only a real game enters the ranking */
     if (exitValue == 1) {
       SCOREREC *added = NULL;
       game.GetScore()->date = (uint32_t)time(NULL);
@@ -297,7 +297,7 @@ static int runGamePlay(int act) {
       int r = runGameOverScreen(&game, &setupManager, added, pos);
       setupManager.SaveHighScore();
 
-      if (r == 1) retry = 1;        /* ricomincia la stessa partita */
+      if (r == 1) retry = 1;        /* restart the same game */
       if (r == 0) leave = 1;        /* exit */
     }
 
@@ -319,12 +319,12 @@ int main(void) {
   osSetSpeedupEnable(true);
 
   render_init();
-  soundManager.Create();           /* audio_init: NDSP + thread musica */
+  soundManager.Create();           /* audio_init: NDSP + music thread */
   applySetup();
 
   game.SetSetupManager(&setupManager);
   game.SetSoundManager(&soundManager);
-  /* come BlockOut.cpp: Create() una sola volta all'avvio */
+  /* as in BlockOut.cpp: Create() only once at startup */
   game.Create(TOPW, TOTH);
 
   runIntroScreen();

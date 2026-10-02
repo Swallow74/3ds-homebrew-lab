@@ -1,6 +1,6 @@
 /*
   File:        Utils.cpp
-  Description: Funzioni di utilita' identiche all'originale BlockOut II
+  Description: Utility functions identical to the original BlockOut II
                (v, Normalize, fround, FormatTime, ZeroMemory)
   Author:      Jean-Luc PONS (GPL)
 
@@ -14,7 +14,7 @@
 
 //-----------------------------------------------------------------------------
 // Name: v()
-// Desc: Costruisce un VERTEX (statico, come nell'originale)
+// Desc: Builds a VERTEX (static, as in the original)
 //-----------------------------------------------------------------------------
 VERTEX v(float x, float y, float z) {
 
@@ -26,7 +26,7 @@ VERTEX v(float x, float y, float z) {
 }
 
 //-----------------------------------------------------------------------------
-// Normalize: normalizza un vettore 3D
+// Normalize: normalizes a 3D vector
 //-----------------------------------------------------------------------------
 void Normalize(VERTEX *v) {
 
@@ -38,7 +38,7 @@ void Normalize(VERTEX *v) {
 
 //-----------------------------------------------------------------------------
 // Name: fround()
-// Desc: Arrotondamento all'intero piu' vicino
+// Desc: Rounds to the nearest integer
 //-----------------------------------------------------------------------------
 int fround(float x) {
 
@@ -54,7 +54,7 @@ int fround(float x) {
 
 //-----------------------------------------------------------------------------
 // Name: FormatTime(float seconds)
-// Desc: Formatta il tempo come "XXmin YYsec"
+// Desc: Formats the time as "XXmin YYsec"
 //-----------------------------------------------------------------------------
 char *FormatTime(float seconds) {
 

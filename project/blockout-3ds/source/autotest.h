@@ -1,9 +1,9 @@
 /*
   File:        autotest.h
-  Description: Modalita' di prova automatica (solo sviluppo): con AUTOTEST 1
-               il gioco attraversa da solo intro, setup, punteggi, partita con
-               input casuali, pausa, fine partita e demo. Serve a verificare
-               la grafica nell'emulatore senza input. Deve restare 0.
+  Description: Automatic test mode (development only): with AUTOTEST 1
+               the game goes by itself through intro, setup, scores, a game with
+               random input, pause, game over and demo. It is used to check
+               the graphics in the emulator without input. Must stay 0.
 */
 #ifndef AUTOTESTH
 #define AUTOTESTH

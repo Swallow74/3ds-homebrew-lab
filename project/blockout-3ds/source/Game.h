@@ -14,10 +14,10 @@
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
   GNU General Public License for more details.
 
-  Port 3DS: identico all'originale Game.h di BlockOut II 2.5, senza le
-  classi legate a OpenGL/Windows (GLFont2D, Sprites, Sprite2D per il
-  background e lo spark). Gli oggetti del pozzo e del polycube sono resi
-  accessibili al renderer software tramite l'amicizia su render_game().
+  3DS port: identical to the original Game.h of BlockOut II 2.5, without the
+  classes tied to OpenGL/Windows (GLFont2D, Sprites, Sprite2D for the
+  background and the spark). The pit and polycube objects are made
+  accessible to the software renderer through the friendship on render_game().
 */
 
 #ifndef GAMEH
@@ -72,12 +72,12 @@ class Game {
     // Set view matrix
     void SetViewMatrix(GLfloat *mView);
 
-    /* ---- Adattamenti richiesti dall'hardware 3DS ---------------------
-       L'originale rendeva con OpenGL dentro Game::Render(); il renderer
-       software (render.cpp) ha bisogno del viewport del pozzo (che
-       l'originale calcolava in Create()) e della posizione/proiezione
-       dello spark. pitView.y resta nella convenzione bottom-left GL
-       dell'originale, come in Game::Create().                       */
+    /* ---- Adaptations required by the 3DS hardware ---------------------
+       The original rendered with OpenGL inside Game::Render(); the software
+       renderer (render.cpp) needs the pit viewport (which the
+       original computed in Create()) and the position/projection
+       of the spark. pitView.y stays in the original's GL bottom-left
+       convention, as in Game::Create().                             */
 
     void SetPitViewport(int x,int y,int w,int h);
 
@@ -86,15 +86,15 @@ class Game {
     int  GetPitViewW() { return pitView.width; }
     int  GetPitViewH() { return pitView.height; }
 
-    /* accessori per main.cpp (in originale il menu leggeva il game mode
-       tramite amici/variant nel main; qui servono per pilotare il loop) */
+    /* accessors for main.cpp (in the original the menu read the game mode
+       through friends/variants in main; here they are needed to drive the loop) */
     int  GetGameMode() { return gameMode; }
     int  GetInited()   { return inited; }
 
-    // Parallasse (inclinazione del gyroscope/tilt, adattamento 3DS)
+    // Parallax (gyroscope/tilt inclination, 3DS adaptation)
     float parallax;
 
-    // Spark: posizione e dimensione in coordinate schermo (top-left)
+    // Spark: position and size in screen coordinates (top-left)
     float sparkX;
     float sparkY;
     float sparkW;
@@ -145,10 +145,10 @@ class Game {
 
     // PolyCube coordinates
     GLfloat     mat[16];     // Global transform matrix
-    /* Adattamento 3DS: IDENTICA matrice del pezzo ma SENZA matView dentro.
-       Nell'originale mat[] partiva da glLoadMatrixf(matView); il renderer
-       3DS aplica la vista (per ogni occhio) da sola, quindi serve anche la
-       sola trasformazione del pezzo. */
+    /* 3DS adaptation: IDENTICAL piece matrix but WITHOUT matView inside.
+       In the original mat[] started from glLoadMatrixf(matView); the 3DS
+       renderer applies the view (for each eye) by itself, so the
+       piece-only transformation is needed too. */
     GLfloat     matPiece[16];
     GLfloat     matAIPiece[16];
     GLMatrix    matRot;      // Current rotation matrix (frame)

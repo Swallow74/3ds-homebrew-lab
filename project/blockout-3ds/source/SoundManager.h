@@ -1,8 +1,8 @@
 /*
   File:        SoundManager.h
-  Description: Sound management - stessa API di SoundManager.h di BlockOut II
-               (i file .wav/.mod originali sono sostituiti dal sintetizzatore
-               NDSP in audio.c: stessi eventi, stessi nomi)
+  Description: Sound management - same API as SoundManager.h of BlockOut II
+               (the original .wav/.mod files are replaced by the NDSP
+               synthesizer in audio.c: same events, same names)
   Program:     BlockOut / BlockOut 3DS
   Author:      Jean-Luc PONS
 
@@ -43,10 +43,10 @@ public:
   void PlayHit();
   void PlayOver();
 
-  // Strati completati insieme (per la frase del suono di linea)
+  // Layers completed together (for the line sound phrase)
   void SetLineCount(int n);
 
-  // Musica (MUS_TITLE / MUS_GAME / MUS_OVER di music.h)
+  // Music (MUS_TITLE / MUS_GAME / MUS_OVER from music.h)
   void PlayMusic(int song);
   void StopMusic();
   void SetMusicTempo(float mul);

@@ -1,21 +1,21 @@
-/* Music: sequencer + sintetizzatore in tempo reale.  Vedi music.h.
+/* Music: real-time sequencer + synthesizer.  See music.h.
  *
- * VOCI (22050 Hz, float, tabelle d'onda band-limited da 1024 punti):
- *   lead   dente di sega + quadra detunata, glide, vibrato ritardato
- *   bell   FM 2 operatori rapporto 3.5 (campana "DX"), indice che decade
- *   harm   seconda voce del ritornello: nota dell'accordo sotto la melodia
- *   arp    impulso 25% (o triangolo nel tema del titolo) a sedicesimi
- *   bass   FM rapporto 1 con indice che decade: il basso "slap" Mega Drive
- *   pad    3 note x 2 denti di sega detunati, L/R separati, passa-basso a
- *          2 poli con cutoff animato, "pompato" dalla cassa (sidechain)
- *   drums  cassa, rullante anni '80, charleston chiuso/aperto, piatto, tom
- *   eco    ping-pong a 3 sedicesimi con feedback filtrato (lead/bell/arp)
+ * VOICES (22050 Hz, float, band-limited 1024-point wave tables):
+ *   lead   sawtooth + detuned square, glide, delayed vibrato
+ *   bell   2-operator FM ratio 3.5 ("DX" bell), decaying index
+ *   harm   second chorus voice: chord note below the melody
+ *   arp    25% pulse (or triangle in the title theme) in sixteenths
+ *   bass   FM ratio 1 with decaying index: the Mega Drive "slap" bass
+ *   pad    3 notes x 2 detuned sawtooths, separate L/R, 2-pole
+ *          low-pass with animated cutoff, "pumped" by the kick (sidechain)
+ *   drums  kick, '80s snare, closed/open hi-hat, cymbal, tom
+ *   echo   ping-pong at 3 sixteenths with filtered feedback (lead/bell/arp)
  *
- * SPARTITI: ogni sezione = accordi (una battuta ciascuno) + melodia in
- * notazione "E5 4 A5 4 ..." (nota, durata in sedicesimi; r = pausa).  Lo
- * stile della sezione decide basso, arpeggio, batteria e riempimenti.
- * Il brano di gioco: intro, strofa A, strofa B, ritornello, break con
- * campana e rullata, ritornello un tono sopra, poi di nuovo dalla strofa. */
+ * SCORES: each section = chords (one per bar) + melody in
+ * "E5 4 A5 4 ..." notation (note, duration in sixteenths; r = rest).  The
+ * section style decides bass, arpeggio, drums and fills.
+ * The game track: intro, verse A, verse B, chorus, break with
+ * bell and drum roll, chorus a tone higher, then back to the verse. */
 #include "music.h"
 #include <math.h>
 #include <string.h>
@@ -27,9 +27,9 @@
 #define SRF     22050.0f
 #define TBL     1024
 #define TWO_PI  6.28318530718f
-#define EBUF    12288                 /* eco: fino a ~0.55 s */
+#define EBUF    12288                 /* echo: up to ~0.55 s */
 
-/* ------------------------------------------------------------ tabelle */
+/* ------------------------------------------------------------ tables */
 static float t_sin[TBL + 1], t_saw[TBL + 1], t_sqr[TBL + 1], t_pul[TBL + 1],
 	t_tri[TBL + 1];
 static float t_hz[128];
@@ -97,7 +97,7 @@ static inline float noise(void)
 	return (float)(int32_t)s_rng * (1.0f / 2147483648.0f);
 }
 
-/* ------------------------------------------------------------ inviluppo */
+/* ------------------------------------------------------------ envelope */
 typedef struct { float v, a, d, s, r; int st; } Env;   /* st: 0 off 1 A 2 D/S 3 R */
 
 static void env_set(Env *e, float att, float dec, float sus, float rel)
@@ -118,7 +118,7 @@ static inline float env_tick(Env *e)
 	return e->v;
 }
 
-/* ------------------------------------------------------------ voci */
+/* ------------------------------------------------------------ voices */
 enum { K_LEAD, K_BELL, K_PULSE, K_TRI, K_BASS };
 
 typedef struct {
@@ -194,14 +194,14 @@ static float voice_tick(Voice *v)
 	return v->lp * env_tick(&v->e) * v->vel;
 }
 
-/* pad: 3 note x 2 oscillatori (pari a sinistra, dispari a destra) */
+/* pad: 3 notes x 2 oscillators (even on the left, odd on the right) */
 static struct {
 	float ph[6], inc[6];
 	float l1, l2, r1, r2, cut, tcut, gain;
 	Env e;
 } pad;
 
-/* batteria */
+/* drums */
 static struct { float ph, fe, fed, e, ed, c, cd; } kk;
 static struct { float e, ed, t, td, ph, lp; } sn;
 static struct { float e, ed, prev; } hh;
@@ -212,17 +212,17 @@ static struct { float ph, f0, fe, fed, e, ed; } tm;
 static float s_eL[EBUF], s_eR[EBUF], s_elp;
 static int s_epos, s_edel = 6615;
 
-/* ------------------------------------------------------------ spartiti */
+/* ------------------------------------------------------------ scores */
 enum { SY_INTRO, SY_VERSE, SY_VERSE2, SY_CHORUS, SY_BREAK, SY_TAMB, SY_TBEAT,
 	SY_OVER };
 
 typedef struct { const char *chords, *mel; int style, tr; } Sect;
 typedef struct { const Sect *sec; int nsec, loop; float bpm; } Song;
 
-/* ---- brano di gioco: 132 BPM (accelera col livello), Mi minore ----
- * Freddo e "spaziale" come il pozzo verde nel buio: strofa che sale per
- * arpeggi, seconda strofa in La minore, ritornello ampio, break con la
- * campana e ritornello un tono sopra prima di ripartire dalla strofa. */
+/* ---- game track: 132 BPM (speeds up with the level), E minor ----
+ * Cold and "spacey" like the green pit in the dark: a verse that climbs through
+ * arpeggios, second verse in A minor, broad chorus, break with the
+ * bell and chorus a tone higher before restarting from the verse. */
 static const char MEL_A[] =
 	"E5 4 G5 4 B5 4 A5 2 G5 2 | E5 6 G5 2 E5 4 C5 4 |"
 	"D5 4 G5 4 B5 4 D6 4 | C6 6 B5 2 A5 8 |"
@@ -246,10 +246,10 @@ static const Sect RUN[] = {
 	{ "Am Em C G Am Em F B",    MEL_B,   SY_VERSE2, 0 },
 	{ "C D Bm Em C D B Em",     MEL_C,   SY_CHORUS, 0 },
 	{ "Em C Am B",              MEL_BRK, SY_BREAK,  0 },
-	{ "C D Bm Em C D B Em",     MEL_C,   SY_CHORUS, 2 },   /* un tono sopra */
+	{ "C D Bm Em C D B Em",     MEL_C,   SY_CHORUS, 2 },   /* a tone higher */
 };
 
-/* ---- tema del menu: 92 BPM, Re minore, campana su arpeggi ---- */
+/* ---- menu theme: 92 BPM, D minor, bell over arpeggios ---- */
 static const char MEL_T1[] =
 	"D5 8 F5 4 A5 4 | Bb5 12 A5 4 | A5 8 C6 4 F6 4 | E6 8 D6 4 C6 4 |"
 	"D6 12 C6 2 A5 2 | Bb5 8 D6 4 F6 4 | E6 8 G6 8 | C#6 8 E6 4 A5 4";
@@ -263,7 +263,7 @@ static const Sect TITLE[] = {
 	{ "Gm Dm Bb F Gm Dm A A",   MEL_T2,  SY_TBEAT, 0 },
 };
 
-/* ---- game over: cadenza discendente e silenzio ---- */
+/* ---- game over: descending cadence and silence ---- */
 static const Sect OVER[] = {
 	{ "Bb A Dm Dm", "F6 4 D6 4 Bb5 4 F5 4 | E6 4 C#6 4 A5 4 E5 4 | D5 16 | r 16",
 	  SY_OVER, 0 },
@@ -275,10 +275,10 @@ static const Song SONGS[MUS_NUM] = {
 	{ OVER,  1, -1, 96.0f },
 };
 
-/* spartito espanso: un record per sedicesimo */
+/* expanded score: one record per sixteenth */
 typedef struct {
 	uint8_t pc, minor, style, s, bar, nbar;
-	uint8_t lead, llen;        /* lead: 0 niente, 1 pausa, altrimenti MIDI */
+	uint8_t lead, llen;        /* lead: 0 nothing, 1 rest, otherwise MIDI */
 } Step;
 
 #define MAXSTEP 768
@@ -358,7 +358,7 @@ static bool s_playing;
 static float s_ctr, s_stepLen = 2205.0f;
 static float s_fade;
 
-static volatile int  s_req = -1;     /* -1 = silenzio */
+static volatile int  s_req = -1;     /* -1 = silence */
 static volatile bool s_on = true, s_duckOn = false;
 static volatile float s_tempo = 1.0f;
 
@@ -440,7 +440,7 @@ static void trigger(const Step *st)
 	const float prog = (float)(bar * 16 + s) / (float)(st->nbar * 16);
 	const int stepN = (int)s_stepLen;
 
-	/* configurazione degli strumenti a inizio sezione */
+	/* instrument setup at the start of a section */
 	if (secStart) {
 		cfg_arp(sty);
 		cfg_bass(sty);
@@ -457,11 +457,11 @@ static void trigger(const Step *st)
 		pad.gain = PADG[sty];
 		pad.tcut = lpc(PADC[sty]);
 	}
-	if (sty == SY_BREAK)       /* filtro che si apre per tutto il break */
+	if (sty == SY_BREAK)       /* filter that opens for the whole break */
 		pad.tcut = lpc(250.0f + 2900.0f * prog * prog);
 	if (s == 0) pad_chord(st);
 
-	/* melodia + seconda voce del ritornello */
+	/* melody + second chorus voice */
 	if (st->lead == 1) { voice_off(&vLead); voice_off(&vHarm); }
 	else if (st->lead) {
 		int gate = (int)(st->llen * s_stepLen * 0.94f);
@@ -509,7 +509,7 @@ static void trigger(const Step *st)
 		break;
 	}
 
-	/* arpeggio sulle note dell'accordo */
+	/* arpeggio on the chord notes */
 	if (sty != SY_OVER) {
 		const int tones[7] = { 0, third, 7, 12, 12 + third, 19, 24 };
 		static const uint8_t PI_[] = { 0, 1, 2, 3 };
@@ -536,7 +536,7 @@ static void trigger(const Step *st)
 		}
 	}
 
-	/* batteria */
+	/* drums */
 	bool fill = last && sty != SY_BREAK && sty != SY_TAMB && sty != SY_OVER;
 	switch (sty) {
 	case SY_INTRO:
@@ -663,7 +663,7 @@ void music_render(int16_t *out, int frames)
 
 		float L = 0.0f, R = 0.0f, send = 0.0f, x;
 
-		/* voci melodiche */
+		/* melodic voices */
 		Voice *vs[4] = { &vLead, &vHarm, &vArp, &vBass };
 		for (int k = 0; k < 4; k++) {
 			Voice *v = vs[k];
@@ -674,7 +674,7 @@ void music_render(int16_t *out, int frames)
 			send += x * v->send;
 		}
 
-		/* batteria */
+		/* drums */
 		float kenv = 0.0f;
 		if (kk.e > 1e-4f) {
 			kk.ph = adv(kk.ph, (45.0f + 120.0f * kk.fe) / SRF);
@@ -712,7 +712,7 @@ void music_render(int16_t *out, int frames)
 			tm.fe *= tm.fed; tm.e *= tm.ed;
 		}
 
-		/* pad stereo con passa-basso a 2 poli e sidechain dalla cassa */
+		/* stereo pad with 2-pole low-pass and sidechain from the kick */
 		if (pad.e.st) {
 			float sl = 0.0f, sr = 0.0f;
 			for (int k = 0; k < 6; k += 2) {
@@ -729,7 +729,7 @@ void music_render(int16_t *out, int frames)
 			R += pad.r2 * g;
 		}
 
-		/* eco ping-pong con feedback filtrato */
+		/* ping-pong echo with filtered feedback */
 		float dl = s_eL[s_epos], dr = s_eR[s_epos];
 		s_elp += (dr - s_elp) * 0.35f;
 		s_eL[s_epos] = send + s_elp * 0.40f;
@@ -772,7 +772,7 @@ static void fill_ready(void)
 		ndspWaveBuf *w = &s_wb[s_next];
 		if (w->status == NDSP_WBUF_QUEUED || w->status == NDSP_WBUF_PLAYING) break;
 		music_render(s_mb[s_next], MB_FR);
-		memset(w, 0, sizeof(*w));        /* status = FREE: vedi AGENTS.md */
+		memset(w, 0, sizeof(*w));        /* status = FREE: see AGENTS.md */
 		w->data_pcm16 = s_mb[s_next];
 		w->nsamples = MB_FR;
 		DSP_FlushDataCache(s_mb[s_next], MB_FR * 2 * sizeof(int16_t));
@@ -807,8 +807,8 @@ bool music_init(int channel)
 	LightEvent_Init(&s_ev, RESET_ONESHOT);
 	ndspSetCallback(ndsp_cb, NULL);
 
-	/* priorita' appena sopra il thread principale, stesso core: il mixer
-	 * non resta mai senza dati anche se un frame di gioco va lungo */
+	/* priority just above the main thread, same core: the mixer
+	 * never runs out of data even if a game frame runs long */
 	s32 prio = 0x30;
 	svcGetThreadPriority(&prio, CUR_THREAD_HANDLE);
 	prio -= 1;

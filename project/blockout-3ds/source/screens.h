@@ -1,7 +1,7 @@
 /*
   File:        screens.h
-  Description: Schermate di interfaccia (intro, menu, setup, punteggi, pausa,
-               fine partita, inserimento nome) sopra ui.h / render.h
+  Description: Interface screens (intro, menu, setup, scores, pause,
+               game over, name entry) on top of ui.h / render.h
   Program:     BlockOut / BlockOut 3DS
   Author:      Jean-Luc PONS
 
@@ -23,32 +23,32 @@ class Game;
 class SetupManager;
 class SoundManager;
 
-/* Azioni del menu */
+/* Menu actions */
 enum {
   SCR_NONE = 0, SCR_PLAY, SCR_PRACTICE, SCR_DEMO, SCR_SETUP, SCR_HISCORE, SCR_EXIT
 };
 
-/* Livello del cursore 3D di Setup -> disparita' in pixel */
+/* Setup 3D slider level -> disparity in pixels */
 float stereoLevelPx(int level);
 
-/* Schermata di presentazione: ritorna quando l'utente conferma */
+/* Title screen: returns when the user confirms */
 void runIntroScreen(void);
 
-/* Menu principale (lista sullo schermo basso, toccabile) -> SCR_* */
+/* Main menu (list on the bottom screen, touchable) -> SCR_* */
 int runMenuScreen(Game *game, SetupManager *sm);
 
-/* Pagina di configurazione con anteprima del pozzo */
+/* Configuration page with a preview of the pit */
 void runSetupScreen(Game *game, SetupManager *sm, SoundManager *snd);
 
-/* Tabella dei punteggi (10 record dell'attuale configurazione) */
+/* Score table (10 records of the current configuration) */
 void runHiScoreScreen(SetupManager *sm);
 
-/* Menu di pausa sopra il gioco congelato: 1 = riprendi, 2 = ricomincia, 0 = esci */
+/* Pause menu above the frozen game: 1 = resume, 2 = restart, 0 = quit */
 int runPauseMenu(Game *game);
 
-/* Fine partita: tabella dei record con la nuova voce in modifica (come
-   PageHallOfFame.cpp) + risultati. added = voce inserita (NULL se nessun
-   record), recordPos 0..9. Ritorna 1 = retry, 2 = menu, 0 = exit. */
+/* Game over: record table with the new entry being edited (like
+   PageHallOfFame.cpp) + results. added = inserted entry (NULL if no
+   record), recordPos 0..9. Returns 1 = retry, 2 = menu, 0 = exit. */
 int runGameOverScreen(Game *game, SetupManager *sm, SCOREREC *added, int recordPos);
 
 #endif /* SCREENSH */

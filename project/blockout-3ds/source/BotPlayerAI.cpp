@@ -9,8 +9,8 @@
   the Free Software Foundation; either version 2 of the License, or
   (at your option) any later version.
 
-  Port 3DS: copiato verbatim da BotPlayerAI.cpp di BlockOut II 2.5 (unico
-  adattamento: <stdlib.h> al posto di <malloc.h>). Coefficienti originali.
+  3DS port: copied verbatim from BotPlayerAI.cpp of BlockOut II 2.5 (only
+  adaptation: <stdlib.h> instead of <malloc.h>). Original coefficients.
 
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of

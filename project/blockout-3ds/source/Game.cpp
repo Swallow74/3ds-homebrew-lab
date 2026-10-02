@@ -14,12 +14,12 @@
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
   GNU General Public License for more details.
 
-  Port 3DS: la logica di Game.cpp di BlockOut II 2.5 e' riportata identica
-  (tabelle punteggio, tempi, transazioni/rotazioni con rimbalzo, passo
-  discesa, spark, game over con camera in orbita, demo AI, pratica).
-  Adattamenti (documentati): le chiamate OpenGL di rendering sono sostituite
-  dal renderer software in render.cpp; le matrici di proiezione/vista sono
-  calcolate con le stesse formule SGI (gluPerspective/gluLookAt).
+  3DS port: the logic of Game.cpp from BlockOut II 2.5 is carried over identically
+  (score tables, timings, translations/rotations with bounce, drop
+  step, spark, game over with orbiting camera, AI demo, practice).
+  Adaptations (documented): the OpenGL rendering calls are replaced
+  by the software renderer in render.cpp; the projection/view matrices are
+  computed with the same SGI formulas (gluPerspective/gluLookAt).
 */
 
 #include "Game.h"
@@ -66,7 +66,7 @@ const float sparkTime = 0.5f;
 
 // ---------------------------------------------------------------------
 
-/* gluPerspective (SGI) in software: m e' column-major come in OpenGL */
+/* software gluPerspective (SGI): m is column-major as in OpenGL */
 static void softwarePerspective(GLfloat *m, double fovy, double aspect,
                                 double zn, double zf)
 {
@@ -173,10 +173,10 @@ int Game::Create(int width, int height) {
     if (ok == 0) return GL_OK;
 
     // --------------------------------------------------------------
-    // Compute pit viewport: identico all'originale (con una finestra 800x600
-    // le percentuali danno un viewport quadrato 575.76 x 575.76, coerente
-    // con l'aspect 1.0 della proiezione).  Sul 3DS main.cpp richiama
-    // SetPitViewport() con il quadrato equivalente sullo schermo superiore.
+    // Compute pit viewport: identical to the original (with an 800x600 window
+    // the percentages give a square viewport of 575.76 x 575.76, consistent
+    // with the projection's 1.0 aspect).  On the 3DS main.cpp calls
+    // SetPitViewport() again with the equivalent square on the top screen.
 
     pitView.x      = fround( (float)width  * 0.0889f );
     pitView.y      = fround( (float)height * 0.0183f );
@@ -238,9 +238,9 @@ void Game::Render() {
 
   if ( !inited ) return;
 
-  /* L'originale rendeva con OpenGL (pit.render / polycube / sprite HUD);
-     nel port il disegno e' integrale nel renderer software, che usa le
-     stesse matrici e lo stesso viewport del pozzo. */
+  /* The original rendered with OpenGL (pit.render / polycube / HUD sprites);
+     in the port the drawing is entirely in the software renderer, which uses the
+     same matrices and the same pit viewport. */
   render_game(this);
 
 }
@@ -613,9 +613,9 @@ int Game::Process(BYTE *keys,float fTime) {
     }
   }
 
-  // Spark: l'originale animava lo sprite 4x4 di spark.png (16 frame in
-  // sparkTime secondi); nel renderer software il flash e' animato con la
-  // stessa scansione temporale, quindi qui resta solo il timer.
+  // Spark: the original animated the 4x4 sprite of spark.png (16 frames in
+  // sparkTime seconds); in the software renderer the flash is animated with the
+  // same time scan, so only the timer remains here.
   if( startSpark != 0.0f ) {
 
     float sTime = (fTime - startSpark);
@@ -658,7 +658,7 @@ int Game::Process(BYTE *keys,float fTime) {
   m.Multiply(&matT);
   memcpy(mat , m.GetGL() , sizeof(GLfloat) * 16);
 
-  // Adattamento 3DS: stessa sequenza ma senza matView (vedi Game.h)
+  // 3DS adaptation: same sequence but without matView (see Game.h)
   GLMatrix mp;
   mp.Identity();
   matT.Translate(vPos.x*cSide, vPos.y*cSide, vPos.z*cSide);
@@ -678,13 +678,13 @@ int Game::Process(BYTE *keys,float fTime) {
 
 void Game::AddPolyCube() {
 
-   // Fix BASIC malformed pit / floating piece: assicura che il pezzo sia
-   // dentro il pozzo e droppato fino in fondo prima di aggiungerlo.
-   // Su 3DS con pezzi BASIC 3D la wall-kick dell'AI (BotMatrix) era
-   // speculare a GLMatrix e poteva lasciare x/y fuori bounds o z sospeso
-   // sul primo livello; il pit risultava malformato o usciva dallo schermo.
+   // Fix BASIC malformed pit / floating piece: makes sure the piece is
+   // inside the pit and dropped all the way down before adding it.
+   // On the 3DS with BASIC 3D pieces the AI wall-kick (BotMatrix) was
+   // mirrored relative to GLMatrix and could leave x/y out of bounds or z hanging
+   // on the first level; the pit ended up malformed or went off screen.
    {
-     // 1) riporta dentro in x/y se necessario (max 5 tentativi)
+     // 1) bring it back inside in x/y if needed (max 5 attempts)
      for(int iter=0; iter<5; ++iter){
        BLOCKITEM tmp[MAX_CUBE]; int nbTmp;
        allPolyCube[pIdx].CopyCube(tmp,&nbTmp);
@@ -705,9 +705,9 @@ void Game::AddPolyCube() {
        xPos += dx; yPos += dy;
        InitTranslate();
      }
-     // 2) droppa fino in fondo (come StartDrop ma qui garantito)
+     // 2) drop all the way down (like StartDrop but guaranteed here)
      int dropZ = zPos;
-     // evita loop infinito se già fuori bounds in x/y (IsOverlap true per oob)
+     // avoid an infinite loop if already out of bounds in x/y (IsOverlap true for oob)
      for(int guard=0; guard < thePit.GetDepth()+5; ++guard){
        if(IsOverlap(&newMatRot,xPos,yPos,dropZ+1)) break;
        dropZ++;
@@ -725,8 +725,8 @@ void Game::AddPolyCube() {
    TransformCube(&newMatRot,cubes,nbCube,xPos,yPos,zPos);
 
    for(int i=0;i<nbCube;i++){
-     // clamp di sicurezza: cubi fuori bounds vengono ignorati invece di
-     // corrompere il pit (causa pozzo malformato)
+     // safety clamp: out-of-bounds cubes are ignored instead of
+     // corrupting the pit (cause of the malformed pit)
      if(cubes[i].x < 0 || cubes[i].x >= thePit.GetWidth() ||
         cubes[i].y < 0 || cubes[i].y >= thePit.GetHeight() ||
         cubes[i].z < 0 || cubes[i].z >= thePit.GetDepth())
@@ -757,7 +757,7 @@ void Game::AddPolyCube() {
      if( score.nbCube >= cubePerLevel * (level+1) ) {
        level++;
        stepTime *= timeLevelFactor;
-       // 3DS: la colonna sonora accelera con il livello (+3% per livello)
+       // 3DS: the soundtrack speeds up with the level (+3% per level)
        soundManager->SetMusicTempo(1.0f + 0.03f * (float)level);
        switch( setupManager->GetSoundType() ) {
          case SOUND_BLOCKOUT2:
@@ -1003,8 +1003,8 @@ void Game::StartSpark(BLOCKITEM *pos) {
   soundManager->PlayHit();
   startSpark = curTime;
 
-  // Compute spark location: la proiezione dell'originale (mProj * mView)
-  // serve per sapere dove disegnare il flash nel renderer software.
+  // Compute spark location: the original's projection (mProj * mView)
+  // is needed to know where to draw the flash in the software renderer.
   VERTEX org  = thePit.GetOrigin();
   float cSide = thePit.GetCubeSide();
   GLMatrix mProj; mProj.FromGL(matProj);
@@ -1016,11 +1016,11 @@ void Game::StartSpark(BLOCKITEM *pos) {
                 (float)((pos->z) + 0.5f) * cSide + org.z,
                 1.0f , &rx,&ry,&rz,&rw);
 
-  /* Guardia: se il vertice proiettato finisce sul piano vicino (rw ~ 0) o
-     dietro la camera (rw < 0) - succede ruotando il pozzo con L+D-pad o
-     durante l'orbita del game over - le divisioni qui sotto danno x/y fuori
-     scala e il flash della spark diventa un triangolo gigante sullo
-     schermo. Si salta solo il flash: il suono del colpo resta. */
+  /* Guard: if the projected vertex ends up on the near plane (rw ~ 0) or
+     behind the camera (rw < 0) - it happens when rotating the pit with L+D-pad or
+     during the game over orbit - the divisions below give out-of-range x/y
+     and the spark flash becomes a giant triangle on the
+     screen. Only the flash is skipped: the hit sound stays. */
   if (!(rw > 0.05f)) { startSpark = 0.0f; return; }
 
   int x = (int)(((-rx / rw) + 1.0f) * (float)pitView.width/2.0f)  + pitView.x;
@@ -1323,7 +1323,7 @@ void Game::ComputeHelp() {
   matAI.Multiply(&aiRot);
   matAI.Multiply(&matT1);
 
-  // Adattamento 3DS: versione senza matView, usata dal renderer
+  // 3DS adaptation: version without matView, used by the renderer
   GLMatrix matAIp;
   matAIp.Identity();
   matAIp.Multiply(&matT3);

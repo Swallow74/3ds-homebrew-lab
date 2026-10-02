@@ -14,9 +14,9 @@
 #include "rx.h"
 #include <string.h>
 
-/* Copia ESATTA di C2Di_Context/C2Di_Vertex da citro2d 1.7.0
- * (source/internal.h).  Serve solo per leggere lo spazio libero nei buffer
- * e per impostare modalita'/texture come fa C2D_DrawImage. */
+/* EXACT copy of C2Di_Context/C2Di_Vertex from citro2d 1.7.0
+ * (source/internal.h).  Only needed to read the free space in the buffers
+ * and to set mode/texture as C2D_DrawImage does. */
 typedef struct {
 	float pos[3];
 	float texcoord[2];
@@ -66,7 +66,7 @@ static bool     s_ok = false;
 static bool     s_add = false;
 static C3D_Tex *s_tex = NULL;
 
-/* registro della scena per il replay stereo */
+/* scene record for the stereo replay */
 #define REC_VTX 16384
 #define REC_OPS 8192
 enum { OP_TRI, OP_QUAD, OP_ADD_ON, OP_ADD_OFF };
@@ -85,7 +85,7 @@ static bool rec_op(u8 op, int nv)
 bool rx_init(size_t maxObjects)
 {
 	RxCtx *c = &__C2Di_Context;
-	/* verifica del layout: i campi letti devono avere i valori di C2D_Init */
+	/* layout check: the fields read must have the values set by C2D_Init */
 	s_ok = (c->flags & F_ACTIVE) && c->vtxBuf && c->idxBuf &&
 	       c->vtxBufSize == 4 * maxObjects && c->idxBufSize == 6 * maxObjects &&
 	       c->vtxBufPos <= c->vtxBufSize && c->idxBufPos <= c->idxBufSize;
@@ -96,8 +96,8 @@ bool rx_ok(void) { return s_ok; }
 
 void rx_set_tex(C3D_Tex *tex) { s_tex = tex; }
 
-/* stessa sequenza di C2D_DrawImage: modalita' + texture, poi C2Di_Update()
- * che fa flush solo se qualcosa e' cambiato (dopo testo o rettangoli) */
+/* same sequence as C2D_DrawImage: mode + texture, then C2Di_Update()
+ * which only flushes if something changed (after text or rectangles) */
 static bool rx_bind(unsigned nidx, unsigned nvtx)
 {
 	RxCtx *c = &__C2Di_Context;
@@ -124,7 +124,7 @@ static inline void vtx(RxCtx *c, const RxV *v)
 	o->texcoord[0] = v->u;
 	o->texcoord[1] = v->v;
 	o->ptcoord[0] = 0.0f;
-	o->ptcoord[1] = 1.0f;         /* blend = 1: colore = texel * vertice */
+	o->ptcoord[1] = 1.0f;         /* blend = 1: color = texel * vertex */
 	o->color = v->c;
 }
 
@@ -191,7 +191,7 @@ void rx_additive(bool on)
 {
 	if (s_rec) { rec_op(on ? OP_ADD_ON : OP_ADD_OFF, 0); return; }
 	if (on == s_add) return;
-	/* il blend e' stato GPU globale: prima si disegna quanto accumulato */
+	/* blend is global GPU state: first draw what has been accumulated */
 	C2D_Flush();
 	if (on)
 		C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_SRC_ALPHA, GPU_ONE,
@@ -204,7 +204,7 @@ void rx_additive(bool on)
 
 void rx_scene(void)
 {
-	s_add = true;          /* forza il ripristino anche se lo stato e' ignoto */
+	s_add = true;          /* force the restore even if the state is unknown */
 	rx_additive(false);
 }
 

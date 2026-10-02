@@ -12,29 +12,29 @@
  * GNU General Public License for more details.
  */
 /*
- * NEON RUSH 3DS - runner "dentro lo schermo" per Nintendo 3DS
+ * NEON RUSH 3DS - "into the screen" runner for the Nintendo 3DS
  *
- * 3 corsie, ostacoli in avvicinamento, salto con gravita', monete e
- * power-up, stereoscopia "comoda" (parallel-shift: nessun occhio ruota,
- * disparita' sempre e solo dietro il piano dello schermo), audio DSP con
- * musica a loop + effetti, best score e monete salvati su SD.
+ * 3 lanes, oncoming obstacles, jumping with gravity, coins and
+ * power-ups, comfortable stereoscopy (parallel-shift: no eye rotates,
+ * disparity is always and only behind the screen plane), DSP audio with
+ * looping music + effects, best score and coins saved to the SD card.
  *
- * Grafica: poligoni con texture procedurali mappate sulle facce proiettate
- * (atlas unico con mipmap, vedi texgen.c / rx.c), luce direzionale per
- * faccia, occlusione ambientale verso terra e nebbia per vertice, glow
- * additivi.  Tutto e' generato a runtime: nessun asset esterno.
+ * Graphics: polygons with procedural textures mapped onto the projected faces
+ * (single atlas with mipmaps, see texgen.c / rx.c), per-face directional light,
+ * ambient occlusion toward the ground and per-vertex fog, additive
+ * glows.  Everything is generated at runtime: no external assets.
  *
- * Comandi (vedi anche schermo inferiore):
- *   TITOLO  : Su/Giu' voce, Sx/Dx cambia valore, A conferma, START esce
- *   Gioco   : Sx/Dx corsia, A/B/Su salto, Giu' in aria = picchiata,
- *             START (o tocco su PAUSE) = pausa, SELECT = musica on/off
- *   CRASH   : A riprova, B titolo
- *   DEMO    : qualsiasi pulsante torna al titolo
+ * Controls (see also the bottom screen):
+ *   TITLE   : Up/Down item, Left/Right change value, A confirm, START exit
+ *   Game    : Left/Right lane, A/B/Up jump, Down in the air = dive,
+ *             START (or touch PAUSE) = pause, SELECT = music on/off
+ *   CRASH   : A retry, B title
+ *   DEMO    : any button returns to the title
  *
- * Punteggio (tutto moltiplicato per difficolta' e moltiplicatore):
- *   distanza 1/m, moneta 10, salto pulito 25, schivata 2, power-up 50.
- *   Il moltiplicatore sale di 1 ogni 20 monete della corsa (max x5) e il
- *   power-up 2X lo raddoppia per 10 secondi.
+ * Score (everything multiplied by difficulty and multiplier):
+ *   distance 1/m, coin 10, clean jump 25, dodge 2, power-up 50.
+ *   The multiplier rises by 1 every 20 coins of the run (max x5) and the
+ *   2X power-up doubles it for 10 seconds.
  */
 #include <3ds.h>
 #include <citro2d.h>
@@ -47,9 +47,9 @@
 #include "texgen.h"
 #include "rx.h"
 
-#define MAX_OBJECTS 12288      /* primitive per frame: 2 occhi + schermo basso */
+#define MAX_OBJECTS 12288      /* primitives per frame: 2 eyes + bottom screen */
 
-/* ------------------------------- vettori ---------------------------------- */
+/* ------------------------------- vectors ---------------------------------- */
 typedef struct { float x, y, z; } V3;
 
 static inline V3 v3(float x, float y, float z) { V3 r = {x, y, z}; return r; }
@@ -80,21 +80,21 @@ static inline float clampf(float v, float lo, float hi)
 	return v < lo ? lo : (v > hi ? hi : v);
 }
 
-/* camera dietro il giocatore, guarda dentro lo schermo (+z = lontano) */
+/* camera behind the player, looking into the screen (+z = far) */
 static const V3 CAM_BASE = {0.0f, 3.6f, -7.5f};
 static const V3 CAM_TGT  = {0.0f, 1.0f, 9.0f};
 #define FOCAL 300.0f
 #define OX    200.0f
-#define OY    132.0f    /* piu' in alto del centro: la navicella resta tutta in vista */
+#define OY    132.0f    /* higher than the center: the ship stays fully in view */
 
-/* STEREOSCOPIA COMODA
- * Entrambi gli occhi usano la STESSA camera (quella centrale): la differenza
- * fra le due immagini e' solo uno spostamento orizzontale "sh" in pixel che
- * dipende dalla profondita' (parallel-shift + depth shear).  Il piano a
- * disparita' zero (D_SCREEN) e' DAVANTI a tutto il contenuto 3D: disparita'
- * sempre "non incrociata" (oggetto dietro il vetro), gli occhi non devono MAI
- * incrociare.  HUD e flash sono in screen-space (sul vetro); cielo, sole e
- * montagne usano lo spostamento massimo (all'infinito). */
+/* COMFORTABLE STEREOSCOPY
+ * Both eyes use the SAME camera (the central one): the difference
+ * between the two images is only a horizontal shift "sh" in pixels that
+ * depends on depth (parallel-shift + depth shear).  The zero-disparity
+ * plane (D_SCREEN) is IN FRONT of all the 3D content: disparity is
+ * always "uncrossed" (object behind the glass), the eyes must NEVER
+ * cross.  HUD and flashes are in screen-space (on the glass); sky, sun and
+ * mountains use the maximum shift (at infinity). */
 #define D_SCREEN 3.2f
 #define EYE_BASE 0.085f
 #define MAX_DISP 7.5f
@@ -102,9 +102,9 @@ static const V3 CAM_TGT  = {0.0f, 1.0f, 9.0f};
 typedef struct { V3 eye, fwd, right, up; } Cam;
 
 static Cam camMid;
-static float g_s = 0.0f;                 /* +/- parallasse occhio corrente   */
-static float g_shx = 0.0f, g_shy = 0.0f; /* scossa: IDENTICA per entrambi    */
-static float g_horY = 100.0f;            /* orizzonte in pixel               */
+static float g_s = 0.0f;                 /* +/- parallax of the current eye */
+static float g_shx = 0.0f, g_shy = 0.0f; /* shake: IDENTICAL for both */
+static float g_horY = 100.0f;            /* horizon in pixels */
 
 static Cam make_cam(void)
 {
@@ -125,8 +125,8 @@ static float eye_shift(float d)
 	return clampf(sh, -MAX_DISP, MAX_DISP);
 }
 
-/* disparita' per unita' di parallasse dell'ultimo punto proiettato: i
- * vertici del mondo la portano con se' (RxV.s) per il replay stereo */
+/* disparity per unit of parallax of the last projected point: world
+ * vertices carry it with them (RxV.s) for the stereo replay */
 static float g_psh = 0.0f;
 
 static bool project(V3 p, float *sx, float *sy)
@@ -140,7 +140,7 @@ static bool project(V3 p, float *sx, float *sy)
 	return true;
 }
 
-/* ------------------------------- colori ----------------------------------- */
+/* ------------------------------- colors ----------------------------------- */
 #define RGBA(r, g, b, a) C2D_Color32(r, g, b, a)
 
 static u32 colBg, colWhite, colDim, colAccent, colPink, colGold, colHint,
@@ -148,8 +148,8 @@ static u32 colBg, colWhite, colDim, colAccent, colPink, colGold, colHint,
 	colRoad, colGrid, colRail, colDash, colBarr, colWall, colPlayer,
 	colPlayer2, colShadow, colPanel, colPanelEdge;
 
-/* palette dei palazzi: tinte leggere (la texture ha gia' i suoi colori) e
- * neon dei cornicioni */
+/* building palette: light tints (the texture already has its own colors) and
+ * neon trim */
 static const u32 BLD_TINT[4] = {
 	0xFFFFD8E0u, 0xFFFFE4D0u, 0xFFECD8FFu, 0xFFF4FFD8u };  /* ABGR */
 static const u32 BLD_NEON[4] = {
@@ -158,7 +158,7 @@ static const u32 BLD_NEON[4] = {
 #define FOG_NEAR 12.0f
 #define FOG_FAR  60.0f
 #define FOG_MAX  0.86f
-#define FADE0    50.0f     /* oltre: dissolvenza in alpha (niente pop-in) */
+#define FADE0    50.0f     /* beyond: alpha fade (no pop-in) */
 #define FADE1    62.0f
 
 static u32 shade(u32 c, float f)
@@ -182,7 +182,7 @@ static u32 mul_a(u32 col, float f)
 	return with_a(col, (float)(col >> 24) / 255.0f * f);
 }
 
-/* mescola rgb e alpha */
+/* mixes rgb and alpha */
 static u32 mixc(u32 a, u32 b, float t)
 {
 	t = clampf(t, 0.0f, 1.0f);
@@ -194,8 +194,8 @@ static u32 mixc(u32 a, u32 b, float t)
 	return r;
 }
 
-/* nebbia: rgb verso il colore dell'orizzonte, alpha intatta; molto lontano
- * anche dissolvenza in alpha, cosi' gli oggetti nascono senza "pop" */
+/* fog: rgb toward the horizon color, alpha untouched; very far away
+ * also an alpha fade, so objects appear without "pop" */
 static u32 fogv(u32 col, float d)
 {
 	float t = clampf((d - FOG_NEAR) / (FOG_FAR - FOG_NEAR), 0.0f, FOG_MAX);
@@ -204,13 +204,13 @@ static u32 fogv(u32 col, float d)
 	return c;
 }
 
-/* alpha "di nebbia" per i glow additivi: 1 vicino, 0 lontano */
+/* "fog" alpha for additive glows: 1 near, 0 far */
 static float fogA(float d)
 {
 	return clampf(1.0f - (d - FOG_NEAR) / (FADE1 - FOG_NEAR), 0.0f, 1.0f);
 }
 
-/* luce direzionale: dall'alto, da destra e da dietro la camera */
+/* directional light: from above, from the right and from behind the camera */
 static V3 LIGHT;
 #define AMB 0.46f
 #define DIF 0.58f
@@ -228,7 +228,7 @@ static inline RxV rvs(float x, float y, float u, float v, u32 c, float s)
 	return r;
 }
 
-/* rettangolo in screen-space, gradiente verticale (alto -> basso) */
+/* rectangle in screen-space, vertical gradient (top -> bottom) */
 static void sq2(TexId t, float x, float y, float w, float h, u32 ct, u32 cb)
 {
 	const TexUV *uv = texgen_uv(t);
@@ -244,8 +244,8 @@ static void sq(TexId t, float x, float y, float w, float h, u32 c)
 
 static void rect(float x, float y, float w, float h, u32 c) { sq(TX_WHITE, x, y, w, h, c); }
 
-/* linea morbida in screen-space (profilo al neon di TX_TRAIL);
- * s0/s1 = disparita' degli estremi (0 = sul vetro) */
+/* soft line in screen-space (neon profile of TX_TRAIL);
+ * s0/s1 = disparity of the endpoints (0 = on the glass) */
 static void sline_s(float x0, float y0, float s0, float x1, float y1, float s1,
 	float w, u32 c0, u32 c1)
 {
@@ -261,7 +261,7 @@ static void sline_s(float x0, float y0, float s0, float x1, float y1, float s1,
 	rx_quad(&a, &b, &c, &d);
 }
 
-/* segmento nel mondo: larghezza in pixel, nebbia per estremo */
+/* segment in the world: width in pixels, fog per endpoint */
 static void wline(V3 a, V3 b, float wpx, u32 col)
 {
 	float x0, y0, x1, y1, s0;
@@ -272,7 +272,7 @@ static void wline(V3 a, V3 b, float wpx, u32 col)
 		fogv(col, depth_of(b)));
 }
 
-/* sprite rivolto alla camera: w/h in unita' mondo */
+/* camera-facing sprite: w/h in world units */
 static void bbr(TexId t, V3 p, float w, float h, float ang, u32 col)
 {
 	float sx, sy;
@@ -286,8 +286,8 @@ static void bbr(TexId t, V3 p, float w, float h, float ang, u32 col)
 	const TexUV *uv = texgen_uv(t);
 	float c = 1.0f, s = 0.0f;
 	if (ang != 0.0f) { c = cosf(ang); s = sinf(ang); }
-	float ax = -hw * c + hh * s, ay = -hw * s - hh * c;   /* alto-sinistra */
-	float bx = hw * c + hh * s, by = hw * s - hh * c;     /* alto-destra   */
+	float ax = -hw * c + hh * s, ay = -hw * s - hh * c;   /* top-left */
+	float bx = hw * c + hh * s, by = hw * s - hh * c;     /* top-right  */
 	RxV A = rvs(sx + ax, sy + ay, uv->u0, uv->v0, col, ps),
 		B = rvs(sx + bx, sy + by, uv->u1, uv->v0, col, ps),
 		C = rvs(sx - ax, sy - ay, uv->u1, uv->v1, col, ps),
@@ -297,12 +297,12 @@ static void bbr(TexId t, V3 p, float w, float h, float ang, u32 col)
 
 static void bb(TexId t, V3 p, float w, float h, u32 col) { bbr(t, p, w, h, 0.0f, col); }
 
-/* Faccia piana texturizzata, vertici vista da fuori:
- * p0 basso-sx, p1 basso-dx, p2 alto-dx, p3 alto-sx.
- * Suddivisa in su x sv celle: rep = tile ripetuta per cella, altrimenti
- * stirata su tutta la faccia (le celle servono solo alla prospettiva).
- * ao < 1: i vertici vicino a terra si scuriscono (occlusione ambientale).
- * cull: salta le facce di spalle.  Ritorna true se e' stata disegnata. */
+/* Flat textured face, vertices seen from outside:
+ * p0 bottom-left, p1 bottom-right, p2 top-right, p3 top-left.
+ * Subdivided into su x sv cells: rep = tile repeated per cell, otherwise
+ * stretched over the whole face (cells are only needed for perspective).
+ * ao < 1: vertices near the ground are darkened (ambient occlusion).
+ * cull: skips back-facing faces.  Returns true if it was drawn. */
 #define GRID_MAX 8
 static bool wface(TexId t, V3 p0, V3 p1, V3 p2, V3 p3, int su, int sv, bool rep,
 	u32 col, float ao, bool cull)
@@ -316,7 +316,7 @@ static bool wface(TexId t, V3 p0, V3 p1, V3 p2, V3 p3, int su, int sv, bool rep,
 		if (!project(p0, &x0, &y0) || !project(p1, &x1, &y1) ||
 		    !project(p3, &x3, &y3))
 			return false;
-		/* area con segno (y verso il basso): faccia verso di noi = negativa */
+		/* signed area (y down): face toward us = negative */
 		if ((x1 - x0) * (y3 - y0) - (y1 - y0) * (x3 - x0) >= 0.0f) return false;
 	}
 	su = su < 1 ? 1 : (su > GRID_MAX ? GRID_MAX : su);
@@ -359,13 +359,13 @@ static bool wface(TexId t, V3 p0, V3 p1, V3 p2, V3 p3, int su, int sv, bool rep,
 	return true;
 }
 
-/* striscia piatta a terra da a verso b, larga 2*hw, n celle in lunghezza.
- * alongU = false: la tile e' "verticale" nel senso di marcia (v lungo la
- * striscia, es. TX_DASH); true: u lungo la striscia (profili come TX_TRAIL). */
+/* flat strip on the ground from a to b, 2*hw wide, n cells long.
+ * alongU = false: the tile is "vertical" in the direction of travel (v along
+ * the strip, e.g. TX_DASH); true: u along the strip (profiles like TX_TRAIL). */
 static void wstrip(TexId t, V3 a, V3 b, float hw, int n, bool alongU, u32 col)
 {
 	V3 dir = vnorm(vsub(b, a));
-	V3 sd = v3(dir.z * hw, 0.0f, -dir.x * hw);        /* perpendicolare in xz */
+	V3 sd = v3(dir.z * hw, 0.0f, -dir.x * hw);        /* perpendicular in xz */
 	V3 al = v3(a.x - sd.x, a.y, a.z - sd.z), ar = v3(a.x + sd.x, a.y, a.z + sd.z);
 	V3 bl = v3(b.x - sd.x, b.y, b.z - sd.z), br = v3(b.x + sd.x, b.y, b.z + sd.z);
 	if (alongU) wface(t, al, bl, br, ar, n, 1, false, col, 1.0f, false);
@@ -373,13 +373,13 @@ static void wstrip(TexId t, V3 a, V3 b, float hw, int n, bool alongU, u32 col)
 }
 
 /* ------------------------------- box -------------------------------------- */
-/* angoli: 0..3 in basso, 4..7 in alto */
+/* corners: 0..3 at the bottom, 4..7 at the top */
 static const float CN[8][3] = {
 	{-1, -1, -1}, {1, -1, -1}, {1, -1, 1}, {-1, -1, 1},
 	{-1,  1, -1}, {1,  1, -1}, {1,  1, 1}, {-1,  1, 1},
 };
 
-/* trasformazione rigida: roll (attorno a z) poi pitch (attorno a x) */
+/* rigid transform: roll (around z) then pitch (around x) */
 typedef struct { V3 piv; float cr, sr, cp, sp; bool rot; } Xf;
 
 static Xf xf_make(V3 piv, float roll, float pitch)
@@ -401,13 +401,13 @@ static V3 xf_apply(const Xf *x, V3 l)
 }
 
 typedef struct {
-	TexId tf, ts, tt;          /* texture: fronte, fianchi, tetto      */
-	u8 fu, fv, su, sv, tu, tv; /* celle per faccia                     */
-	bool rep;                  /* tile ripetuta per cella              */
-	u32 col;                   /* tinta base                           */
-	float ao;                  /* occlusione verso terra (1 = nessuna) */
-	u32 rim;                   /* colore bordi al neon (alpha 0 = no)  */
-	float rimw;                /* spessore bordi in pixel              */
+	TexId tf, ts, tt;          /* textures: front, sides, roof */
+	u8 fu, fv, su, sv, tu, tv; /* cells per face */
+	bool rep;                  /* tile repeated per cell */
+	u32 col;                   /* base tint */
+	float ao;                  /* ground occlusion (1 = none) */
+	u32 rim;                   /* neon edge color (alpha 0 = none) */
+	float rimw;                /* edge thickness in pixels */
 } BoxSty;
 
 static float face_light(V3 p0, V3 p1, V3 p3)
@@ -424,7 +424,7 @@ static void wbox(V3 c, V3 h, const BoxSty *s, const Xf *xf)
 		w[i] = xf_apply(xf, v3(c.x + CN[i][0] * h.x, c.y + CN[i][1] * h.y,
 			c.z + CN[i][2] * h.z));
 
-	/* fronte (0,1,5,4), sinistra (3,0,4,7), destra (1,2,6,5), tetto (4,5,6,7) */
+	/* front (0,1,5,4), left (3,0,4,7), right (1,2,6,5), roof (4,5,6,7) */
 	static const u8 F[4][4] = { {0, 1, 5, 4}, {3, 0, 4, 7}, {1, 2, 6, 5},
 		{4, 5, 6, 7} };
 	bool vis[4];
@@ -448,7 +448,7 @@ static void wbox(V3 c, V3 h, const BoxSty *s, const Xf *xf)
 	if (vis[3]) wline(w[6], w[7], rw, s->rim);
 }
 
-/* --------------------------- stato di gioco ------------------------------- */
+/* --------------------------- game state ------------------------------- */
 #define SPAWN_Z 48.0f
 #define MAXOBS 24
 #define MAXCOIN 72
@@ -465,13 +465,13 @@ enum { PK_GLOW, PK_STREAK, PK_STAR, PK_DEBRIS };
 typedef struct {
 	bool on;
 	int lane;      /* 0..2 */
-	float z;       /* distanza in avanti (0 = giocatore) */
-	int type;      /* 0 = barriera bassa (si salta), 1 = muro (si schiva) */
+	float z;       /* distance ahead (0 = player) */
+	int type;      /* 0 = low barrier (jumpable), 1 = wall (dodge) */
 	bool scored;
 } Obst;
 
 typedef struct {
-	bool on, mag;  /* mag = attirata dal magnete */
+	bool on, mag;  /* mag = attracted by the magnet */
 	float x, y, z, ph;
 } Coin;
 
@@ -502,10 +502,10 @@ static Popup pops[MAXPOP];
 
 static int state = ST_TITLE;
 static bool demo;
-static int g_diff = 1;         /* 0 facile, 1 normale, 2 difficile */
+static int g_diff = 1;         /* 0 easy, 1 normal, 2 hard */
 static int menuSel, pauseSel, overSel;
 
-static int lane;               /* corsia target 0..2 */
+static int lane;               /* target lane 0..2 */
 static float laneX, jumpY, jumpV;
 static bool airborne;
 static float dist, speed, score;
@@ -513,18 +513,18 @@ static float flash, flashR, shake, crashT, etime, overT, introT, goT;
 static float spawnT, powerDist;
 static int coinsRun, chain;
 static float chainT, multPulse;
-static float pwT[PW_NUM];      /* tempo residuo dei power-up (scudo: attivo) */
+static float pwT[PW_NUM];      /* remaining time of the power-ups (shield: active) */
 static float invulT;
 static float trailX[TRAIL_N], trailY[TRAIL_N];
 static bool newBest;
-static int g_gpuUse;           /* % del vertex buffer usato nel frame prima */
+static int g_gpuUse;           /* % of the vertex buffer used in the previous frame */
 
-/* salvataggio */
+/* saving */
 static int best, bank, bestDist;
 
-/* Tavole di difficolta': velocita' iniziale, velocita' massima, moltiplicatore
- * del gap fra le righe di ostacoli, probabilita' che una corsia sia un MURO
- * (i muri NON si possono saltare), moltiplicatore dei punti. */
+/* Difficulty tables: initial speed, maximum speed, multiplier
+ * of the gap between obstacle rows, probability that a lane is a WALL
+ * (walls can NOT be jumped), points multiplier. */
 static const float D_SPD0[3]   = { 9.0f, 11.0f, 13.0f };
 static const float D_SPDMAX[3] = { 22.0f, 30.0f, 36.0f };
 static const float D_GAPMUL[3] = { 1.30f, 1.0f, 0.80f };
@@ -542,7 +542,7 @@ static const float PW_MAX[PW_NUM] = { PW_MAGNET_T, PW_SHIELD_T, PW_X2_T };
 
 static float rndf(void) { return (float)(rand() % 1000) / 1000.0f; }
 
-/* hash deterministico: palazzine sempre uguali a se stesse mentre scorrono */
+/* deterministic hash: buildings always identical to themselves as they scroll */
 static unsigned int hsh(unsigned int v)
 {
 	v = v * 265465761u;
@@ -567,7 +567,7 @@ static void add_points(float base)
 	score += base * D_PTS[g_diff] * mult_total();
 }
 
-/* ------------------------------ salvataggio ------------------------------- */
+/* ------------------------------ saving ------------------------------- */
 static const char *SAVE_PATH = "sdmc:/3ds/runner-3ds/best.txt";
 
 static void save_load(void)
@@ -575,8 +575,8 @@ static void save_load(void)
 	best = bank = bestDist = 0;
 	FILE *f = fopen(SAVE_PATH, "r");
 	if (f) {
-		/* formato: best, monete totali, distanza migliore (le ultime due
-		 * mancano nei salvataggi vecchi: restano a 0) */
+		/* format: best, total coins, best distance (the last two
+		 * are missing in old saves: they stay at 0) */
 		if (fscanf(f, "%d", &best) == 1 && fscanf(f, "%d", &bank) == 1)
 			if (fscanf(f, "%d", &bestDist) != 1) bestDist = 0;
 		fclose(f);
@@ -585,7 +585,7 @@ static void save_load(void)
 
 static void save_store(void)
 {
-	mkdir("sdmc:/3ds", 0777); /* mkdir non e' ricorsiva: entrambi i livelli */
+	mkdir("sdmc:/3ds", 0777); /* mkdir is not recursive: both levels */
 	mkdir("sdmc:/3ds/runner-3ds", 0777);
 	FILE *f = fopen(SAVE_PATH, "w");
 	if (f) {
@@ -594,7 +594,7 @@ static void save_store(void)
 	}
 }
 
-/* ------------------------------ particelle -------------------------------- */
+/* ------------------------------ particles -------------------------------- */
 static Part *part_new(void)
 {
 	for (int i = 0; i < MAXPART; i++)
@@ -645,7 +645,7 @@ static void burst(float x, float y, float z, u32 color, int n, int kind)
 	}
 }
 
-/* scritta a comparsa: la nuova entra in cima, le altre scorrono */
+/* pop-up text: the new one enters at the top, the others scroll */
 static void popup_s(u32 col, const char *s)
 {
 	for (int i = MAXPOP - 1; i > 0; i--) pops[i] = pops[i - 1];
@@ -661,7 +661,7 @@ static void popup_n(u32 col, const char *pre, int v, const char *post)
 	popup_s(col, b);
 }
 
-/* ------------------------------ generazione ------------------------------- */
+/* ------------------------------ generation ------------------------------- */
 static void game_reset(void)
 {
 	memset(obs, 0, sizeof(obs));
@@ -698,9 +698,9 @@ static void coin_at(float x, float y, float z)
 	c->ph = z * 0.35f;
 }
 
-/* Genera una riga di ostacoli garantendo almeno una via d'uscita, poi
- * riempie di monete (o di un power-up) lo spazio fino alla riga successiva,
- * lungo gapDist unita': li' la pista e' libera per costruzione. */
+/* Generates a row of obstacles guaranteeing at least one way out, then
+ * fills the space up to the next row with coins (or a power-up),
+ * along gapDist units: the track is free there by construction. */
 static void spawn_row(float gapDist)
 {
 	int types[3] = { -1, -1, -1 };
@@ -708,7 +708,7 @@ static void spawn_row(float gapDist)
 	int walls = 0;
 
 	for (int l = 0; l < 3; l++) {
-		if (l == freeLane && (rand() % 100) < 70) continue; /* via libera */
+		if (l == freeLane && (rand() % 100) < 70) continue; /* clear way */
 		Obst *o = NULL;
 		for (int i = 0; i < MAXOBS; i++)
 			if (!obs[i].on) { o = &obs[i]; break; }
@@ -718,7 +718,7 @@ static void spawn_row(float gapDist)
 		o->z = SPAWN_Z;
 		o->scored = false;
 		if (l == freeLane) {
-			o->type = 0; /* sulla via di fuga solo barriere saltabili */
+			o->type = 0; /* only jumpable barriers on the escape path */
 		} else if (walls < 2 && (rand() % 100) < D_WALLP[g_diff]) {
 			o->type = 1;
 			walls++;
@@ -728,7 +728,7 @@ static void spawn_row(float gapDist)
 		types[l] = o->type;
 	}
 
-	/* power-up: ogni 220-340 m, a meta' dello spazio libero */
+	/* power-up: every 220-340 m, in the middle of the free space */
 	powerDist -= gapDist;
 	if (powerDist <= 0.0f && gapDist > 9.0f) {
 		for (int i = 0; i < MAXPOW; i++) {
@@ -746,8 +746,8 @@ static void spawn_row(float gapDist)
 
 	int r = rand() % 100;
 	if (r < 30) {
-		/* arco sopra una barriera: segue la traiettoria di un salto ben
-		 * cronometrato (picco sopra la barriera) */
+		/* arc over a barrier: follows the trajectory of a well-timed
+		 * jump (peak above the barrier) */
 		int cand[3], nc = 0;
 		for (int l = 0; l < 3; l++)
 			if (types[l] == 0) cand[nc++] = l;
@@ -762,7 +762,7 @@ static void spawn_row(float gapDist)
 		}
 	}
 	if (r < 85) {
-		/* fila nel corridoio libero, a volte con cambio di corsia a meta' */
+		/* row in the free corridor, sometimes with a lane change halfway */
 		int n = (int)((gapDist - 5.0f) / 1.8f);
 		if (n > 10) n = 10;
 		if (n < 3) return;
@@ -776,7 +776,7 @@ static void spawn_row(float gapDist)
 	}
 }
 
-/* --------------------------------- testo ---------------------------------- */
+/* --------------------------------- text ---------------------------------- */
 static C2D_TextBuf g_buf;
 static C2D_Font g_font;
 
@@ -788,7 +788,7 @@ static void txt(const char *s, float x, float y, float sc, u32 col, int align)
 	C2D_DrawText(&t, align | C2D_WithColor, x, y, 0.5f, sc, sc, col);
 }
 
-/* testo con ombra: leggibile sopra qualsiasi cosa */
+/* text with shadow: readable over anything */
 static void txs(const char *s, float x, float y, float sc, u32 col, int align)
 {
 	txt(s, x + 1.2f, y + 1.2f, sc, with_a(0xFF000000u, (float)(col >> 24) / 380.0f),
@@ -800,7 +800,7 @@ static void txs(const char *s, float x, float y, float sc, u32 col, int align)
 #define AC C2D_AlignCenter
 #define AR C2D_AlignRight
 
-/* pannello: fondo scuro traslucido, filo luminoso sopra, barra d'accento */
+/* panel: translucent dark background, glowing line on top, accent bar */
 static void panel(float x, float y, float w, float h, u32 accent)
 {
 	sq2(TX_WHITE, x, y, w, h, colPanel, mul_a(colPanel, 0.75f));
@@ -815,11 +815,11 @@ static void bar(float x, float y, float w, float h, float f, u32 col)
 	rect(x, y, w * clampf(f, 0.0f, 1.0f), h, col);
 }
 
-/* --------------------------------- IA demo ----------------------------------
- * Gli ostacoli arrivano in "righe" parallele e ogni riga ha sempre almeno una
- * corsia libera o con barriera saltabile.  La CPU guarda la riga piu' vicina
- * e quella dopo e si piazza dove entrambe sono praticabili (con un occhio
- * alle monete).  Dentro il box di collisione (z < 0.9) non si entra mai. */
+/* --------------------------------- demo AI ----------------------------------
+ * Obstacles arrive in parallel "rows" and every row always has at least one
+ * free lane or one with a jumpable barrier.  The CPU looks at the nearest row
+ * and the one after it and positions itself where both are passable (with an eye
+ * on the coins).  It never enters the collision box (z < 0.9). */
 static int lane_box_blocked(int l)
 {
 	for (int i = 0; i < MAXOBS; i++) {
@@ -867,7 +867,7 @@ static float lane_score(int l, float z1, float z2)
 	int d = (l > lane) ? (l - lane) : (lane - l);
 	sc -= 0.4f * (float)d;
 	if (l == lane) sc += 0.30f;
-	/* monete nella corsia, entro la prossima riga */
+	/* coins in the lane, within the next row */
 	for (int i = 0; i < MAXCOIN; i++) {
 		Coin *c = &coins[i];
 		if (c->on && c->z > 0.5f && c->z < z1 && fabsf(c->x - LANEX[l]) < 0.3f)
@@ -913,8 +913,8 @@ static void demo_control(void)
 		audio_move();
 	}
 
-	/* Il salto fa picco a ~0.36 s e resta sopra l'altezza buona
-	 * (jumpY > 0.85) fra ~0.14 e ~0.58 s: finestra utile dell'impatto. */
+	/* The jump peaks at ~0.36 s and stays above the good height
+	 * (jumpY > 0.85) between ~0.14 and ~0.58 s: useful window for the impact. */
 	int typ;
 	float bz = lane_nearest(lane, &typ);
 	if (typ == 0 && !airborne) {
@@ -923,7 +923,7 @@ static void demo_control(void)
 	}
 }
 
-/* ------------------------------ fondale ----------------------------------- */
+/* ------------------------------ backdrop ----------------------------------- */
 #define NSTAR 48
 #define NMOUNT 33
 static float stars[NSTAR][3];
@@ -939,7 +939,7 @@ static void far_init(void)
 		stars[i][1] = 8.0f + rndf() * 38.0f;
 		stars[i][2] = 112.0f + rndf() * 10.0f;
 	}
-	/* due ottave di seni + un po' di caso, valle al centro per il sole */
+	/* two octaves of sines + a bit of randomness, valley in the center for the sun */
 	for (int i = 0; i < NMOUNT; i++) {
 		float x = MOUNT_X0 + MOUNT_DX * (float)i;
 		float h = 5.0f + 5.0f * sinf((float)i * 0.83f + 1.3f) +
@@ -949,17 +949,17 @@ static void far_init(void)
 	}
 }
 
-/* il fondale sta "all'infinito": spostamento stereo massimo, niente nebbia */
+/* the backdrop sits "at infinity": maximum stereo shift, no fog */
 static void draw_sky(void)
 {
 	float hy = g_horY;
 
-	/* cielo: due gradienti, poi terreno piatto fino in basso */
+	/* sky: two gradients, then flat ground all the way down */
 	sq2(TX_WHITE, -10, -10, 420, hy * 0.55f + 10, colSkyTop, colSkyMid);
 	sq2(TX_WHITE, -10, hy * 0.55f - 0.5f, 420, hy * 0.45f + 1.0f, colSkyMid, colFog);
 	sq2(TX_WHITE, -10, hy, 420, 250 - hy, colFog, colGroundNear);
 
-	/* sole synthwave nella valle, alone e stelle in additivo */
+	/* synthwave sun in the valley, halo and stars additive */
 	V3 sunP = v3(0.0f, 13.0f, 130.0f);
 	rx_additive(true);
 	bb(TX_GLOW, sunP, 110.0f, 110.0f, with_a(colPink, 0.55f));
@@ -972,7 +972,7 @@ static void draw_sky(void)
 	rx_additive(false);
 	bb(TX_SUN, sunP, 46.0f, 46.0f, colWhite);
 
-	/* montagne: pareti in gradiente + creste al neon (wireframe) */
+	/* mountains: gradient walls + neon ridges (wireframe) */
 	for (int i = 0; i + 1 < NMOUNT; i++) {
 		float x0 = MOUNT_X0 + MOUNT_DX * i, x1 = x0 + MOUNT_DX;
 		float ax, ay, bx, by, cx, cy, dx, dy;
@@ -981,7 +981,7 @@ static void draw_sky(void)
 		    !project(v3(x1, mountH[i + 1], MOUNT_Z), &cx, &cy) ||
 		    !project(v3(x0, mountH[i], MOUNT_Z), &dx, &dy))
 			continue;
-		float ms = g_psh;          /* stesso piano z: stessa disparita' */
+		float ms = g_psh;          /* same z plane: same disparity */
 		const TexUV *uv = texgen_uv(TX_WHITE);
 		RxV A = rvs(ax, ay, uv->u0, uv->v0, colMountBase, ms),
 			B = rvs(bx, by, uv->u0, uv->v0, colMountBase, ms),
@@ -994,7 +994,7 @@ static void draw_sky(void)
 			with_a(colPink, 0.95f));
 	}
 
-	/* foschia sull'orizzonte */
+	/* haze on the horizon */
 	rx_additive(true);
 	sq2(TX_WHITE, -10, hy - 16.0f, 420, 16.0f, with_a(colPink, 0.0f),
 		with_a(colPink, 0.30f));
@@ -1002,9 +1002,9 @@ static void draw_sky(void)
 	rx_additive(false);
 }
 
-/* --------------------------------- mondo ---------------------------------- */
-/* sede stradale e terreno a piastrelle che scorrono, bordi al neon,
- * tratteggi di corsia e pozze di luce dei lampioni */
+/* --------------------------------- world ---------------------------------- */
+/* road bed and tiled scrolling ground, neon edges,
+ * lane dashes and pools of light from the street lamps */
 static void draw_ground(void)
 {
 	const float cell = 4.0f;
@@ -1013,9 +1013,9 @@ static void draw_ground(void)
 	for (int k = 15; k >= 0; k--) {
 		float z0 = k * cell - off - 4.0f, z1 = z0 + cell;
 		if (z1 < -4.5f) continue;
-		int sv = (k < 3) ? 3 : 2;           /* piu' celle vicino: meno distorsione */
+		int sv = (k < 3) ? 3 : 2;           /* more cells near: less distortion */
 
-		/* terreno ai lati: la tile ha la griglia sui bordi */
+		/* ground on the sides: the tile has the grid on its edges */
 		for (int s = -1; s <= 1; s += 2)
 			for (int t = 0; t < 3; t++) {
 				float xa = s * (3.3f + 3.9f * t), xb = s * (3.3f + 3.9f * (t + 1));
@@ -1023,7 +1023,7 @@ static void draw_ground(void)
 				wface(TX_GROUND, v3(xl, 0, z0), v3(xr, 0, z0), v3(xr, 0, z1),
 					v3(xl, 0, z1), 1, sv, false, colGrid, 1.0f, false);
 			}
-		/* carreggiata: una tile per corsia, due in profondita' */
+		/* roadway: one tile per lane, two in depth */
 		for (int l = 0; l < 3; l++) {
 			float xl = LANEX[l] - 1.1f, xr = LANEX[l] + 1.1f;
 			wface(TX_ROAD, v3(xl, 0, z0), v3(xr, 0, z0), v3(xr, 0, z1),
@@ -1031,14 +1031,14 @@ static void draw_ground(void)
 		}
 	}
 
-	/* bordi: striscia piena + filo al neon */
+	/* edges: solid strip + neon wire */
 	for (int s = -1; s <= 1; s += 2) {
 		float rx = s * 3.3f;
 		wstrip(TX_WHITE, v3(rx, 0.01f, -4.0f), v3(rx, 0.01f, 56.0f), 0.08f, 8,
 			false, shade(colRail, 0.9f));
 	}
 
-	/* tratteggi di corsia */
+	/* lane dashes */
 	float doff = fmodf(dist, 3.0f);
 	for (int i = 0; i < 2; i++) {
 		float lx = (i == 0) ? -1.1f : 1.1f;
@@ -1050,7 +1050,7 @@ static void draw_ground(void)
 		}
 	}
 
-	/* glow additivi: bordi e pozze di luce dei lampioni */
+	/* additive glows: edges and pools of light from the street lamps */
 	rx_additive(true);
 	for (int s = -1; s <= 1; s += 2) {
 		float rx = s * 3.3f;
@@ -1105,7 +1105,7 @@ static void draw_buildings(void)
 			};
 			wbox(v3(bx, hh * 0.5f, z), v3(bw, hh * 0.5f, bd), &st, NULL);
 
-			/* insegna al neon sulla facciata (lampeggia di rado) */
+			/* neon sign on the facade (rarely blinks) */
 			if (((h >> 21) % 3) == 0) {
 				float fz = z - bd - 0.04f;
 				float sy = hh - 1.1f;
@@ -1116,7 +1116,7 @@ static void draw_buildings(void)
 					v3(bx + 0.8f, sy + 0.4f, fz), v3(bx - 0.8f, sy + 0.4f, fz),
 					2, 1, false, nc, 1.0f, false);
 			}
-			/* antenna con luce rossa lampeggiante */
+			/* antenna with a blinking red light */
 			if (((h >> 25) & 1) && hh > 6.0f) {
 				wline(v3(bx, hh, z), v3(bx, hh + 1.6f, z), 1.5f, 0xFF605060u);
 				float bl = 0.5f + 0.5f * sinf(etime * 3.0f + (float)(h & 15));
@@ -1127,7 +1127,7 @@ static void draw_buildings(void)
 	}
 }
 
-/* lampioni: palo, braccio verso la strada, testa luminosa */
+/* street lamps: pole, arm toward the road, glowing head */
 static void draw_posts(void)
 {
 	static const BoxSty pole = {
@@ -1157,7 +1157,7 @@ static void draw_posts(void)
 	}
 }
 
-/* ------------------------------ oggetti ----------------------------------- */
+/* ------------------------------ objects ----------------------------------- */
 static void shadow_at(float x, float z, float w, float dpt, float a)
 {
 	wface(TX_SHADE, v3(x - w, 0.02f, z - dpt), v3(x + w, 0.02f, z - dpt),
@@ -1182,7 +1182,7 @@ static void draw_obst(const Obst *o)
 		BoxSty st = { TX_ENERGY, TX_HULL, TX_ROOF, 1, 2, 1, 2, 1, 1, true,
 			wc, 0.80f, with_a(0xFFD0A0FFu, 0.95f), 2.4f };
 		wbox(v3(x, 1.3f, o->z), v3(0.95f, 1.3f, 0.30f), &st, NULL);
-		/* zoccolo a strisce */
+		/* striped plinth */
 		float fz = o->z - 0.31f;
 		wface(TX_HAZARD, v3(x - 0.95f, 0.0f, fz), v3(x + 0.95f, 0.0f, fz),
 			v3(x + 0.95f, 0.42f, fz), v3(x - 0.95f, 0.42f, fz), 2, 1, false,
@@ -1203,7 +1203,7 @@ static void draw_coin(const Coin *c)
 	if (c->y < 1.0f && !c->mag) shadow_at(c->x, c->z, 0.28f, 0.14f, 0.35f);
 	bb(TX_GLOW, p, 1.1f, 1.1f, fogv(with_a(colGold, 0.30f), d));
 	bb(TX_COIN, p, w, 0.62f, fogv(colWhite, d));
-	/* lampo quando la moneta e' di piatto */
+	/* flash when the coin is face-on */
 	if (fabsf(sp) > 0.97f)
 		bb(TX_STAR, v3(p.x - 0.12f, p.y + 0.14f, p.z - 0.05f), 0.45f, 0.45f,
 			fogv(with_a(colWhite, 0.8f), d));
@@ -1226,10 +1226,10 @@ static void draw_power(const Power *pw)
 	bb(PW_TEX[pw->kind], p, 0.80f, 0.80f, fogv(colWhite, d));
 }
 
-/* ----------------------------- protagonista ------------------------------- */
-/* Hover-racer: scafo, naso, motore, abitacolo di vetro, alette bicolori,
- * pod di gravita'.  Roll in curva, pitch in salto; parti in ordine
- * dal lontano al vicino (la camera sta dietro e sopra). */
+/* ----------------------------- protagonist ------------------------------- */
+/* Hover-racer: hull, nose, engine, glass cockpit, two-tone fins,
+ * gravity pods.  Roll in turns, pitch in jumps; parts in order
+ * from far to near (the camera sits behind and above). */
 static void draw_player(float px, float py, float lean)
 {
 	V3 piv = v3(px, py, 0.0f);
@@ -1240,7 +1240,7 @@ static void draw_player(float px, float py, float lean)
 	float shS = 1.0f / (1.0f + py * 0.35f);
 	shadow_at(px, 0.1f, 1.1f * shS, 1.2f * shS, 0.60f * shS);
 
-	/* magnete: anello a terra che pulsa */
+	/* magnet: pulsing ring on the ground */
 	if (pwT[PW_MAGNET] > 0.0f) {
 		float r = 1.6f + 0.25f * sinf(etime * 8.0f);
 		rx_additive(true);
@@ -1260,25 +1260,25 @@ static void draw_player(float px, float py, float lean)
 	BoxSty glass = { TX_CANOPY, TX_CANOPY, TX_CANOPY, 1, 1, 1, 1, 1, 1, false,
 		colWhite, 1.0f, with_a(colWhite, 0.6f), 1.2f };
 
-	wbox(v3(0.0f, 0.30f, 1.05f), v3(0.30f, 0.12f, 0.35f), &hull, &xf);   /* naso */
+	wbox(v3(0.0f, 0.30f, 1.05f), v3(0.30f, 0.12f, 0.35f), &hull, &xf);   /* nose */
 	for (int s = -1; s <= 1; s += 2)
 		wbox(v3(s * 0.40f, 0.14f, 0.0f), v3(0.14f, 0.10f, 0.45f), &dark, &xf);
 	hull.tu = 2; hull.tv = 2; hull.rep = true;
-	wbox(v3(0.0f, 0.34f, 0.05f), v3(0.50f, 0.18f, 0.80f), &hull, &xf);   /* scafo */
+	wbox(v3(0.0f, 0.34f, 0.05f), v3(0.50f, 0.18f, 0.80f), &hull, &xf);   /* hull */
 	for (int s = -1; s <= 1; s += 2) {
 		wbox(v3(s * 0.72f, 0.34f, -0.55f), v3(0.22f, 0.05f, 0.35f), &wing, &xf);
 		V3 tip = xf_apply(&xf, v3(s * 0.95f, 0.36f, -0.50f));
 		bb(TX_WHITE, tip, 0.07f, 0.07f, colAccent);
 	}
-	wbox(v3(0.0f, 0.60f, -0.05f), v3(0.26f, 0.16f, 0.42f), &glass, &xf); /* vetro */
-	wbox(v3(0.0f, 0.40f, -0.95f), v3(0.34f, 0.22f, 0.28f), &dark, &xf);  /* motore */
-	/* ugelli */
+	wbox(v3(0.0f, 0.60f, -0.05f), v3(0.26f, 0.16f, 0.42f), &glass, &xf); /* glass */
+	wbox(v3(0.0f, 0.40f, -0.95f), v3(0.34f, 0.22f, 0.28f), &dark, &xf);  /* engine */
+	/* nozzles */
 	for (int s = -1; s <= 1; s += 2) {
 		V3 q = xf_apply(&xf, v3(s * 0.18f, 0.40f, -1.24f));
 		bb(TX_GLOW, q, 0.30f, 0.30f, colWhite);
 	}
 
-	/* glow additivi: pod, fiamme, alone di velocita', scudo */
+	/* additive glows: pods, flames, speed halo, shield */
 	rx_additive(true);
 	for (int s = -1; s <= 1; s += 2) {
 		V3 q = xf_apply(&xf, v3(s * 0.40f, 0.02f, 0.0f));
@@ -1304,7 +1304,7 @@ static void draw_player(float px, float py, float lean)
 	rx_additive(false);
 }
 
-/* scia dei motori: nastro in screen-space lungo le posizioni passate */
+/* engine trail: ribbon in screen-space along the past positions */
 static void draw_trail(void)
 {
 	float sx[TRAIL_N], sy[TRAIL_N], sw[TRAIL_N], ss[TRAIL_N];
@@ -1369,7 +1369,7 @@ static void draw_particles(void)
 	}
 }
 
-/* anello di crash che si allarga nel mondo */
+/* crash ring that expands in the world */
 static void draw_crash_ring(void)
 {
 	if (crashT <= 0.0f || crashT > 0.9f) return;
@@ -1381,8 +1381,8 @@ static void draw_crash_ring(void)
 	bb(TX_RING, p, sz * 0.55f, sz * 0.3f, with_a(colWhite, a * 0.7f));
 }
 
-/* oggetti del mondo in ordine del pittore: lontano -> vicino.  Tutto cio'
- * che e' davanti al giocatore, poi il giocatore, poi cio' che l'ha superato. */
+/* world objects in painter's order: far -> near.  Everything
+ * in front of the player, then the player, then what has passed him. */
 typedef struct { float z; short kind, idx; } DrawItem;
 
 static void draw_items(bool front)
@@ -1400,7 +1400,7 @@ static void draw_items(bool front)
 		if (pows[i].on && ((pows[i].z > 0.0f) == front))
 			it[n++] = (DrawItem){ pows[i].z, 2, (short)i };
 
-	/* insertion sort decrescente: pochi elementi e quasi gia' in ordine */
+	/* descending insertion sort: few elements and almost already in order */
 	for (int i = 1; i < n; i++) {
 		DrawItem v = it[i];
 		int j = i - 1;
@@ -1442,7 +1442,7 @@ static void draw_world(bool withItems)
 static void draw_logo(float cx, float y, float sc)
 {
 	float gl = 0.55f + 0.25f * sinf(etime * 1.7f);
-	/* alone rosa sfalsato + testo principale ciano */
+	/* offset pink halo + main cyan text */
 	txt("NEON RUSH", cx + 2.0f, y + 2.0f, sc, with_a(colPink, gl), AC);
 	txt("NEON RUSH", cx - 1.0f, y - 1.0f, sc, with_a(colPink, gl * 0.5f), AC);
 	txt("NEON RUSH", cx, y, sc, colAccent, AC);
@@ -1452,13 +1452,13 @@ static void draw_hud(void)
 {
 	char line[64];
 
-	/* punteggio */
+	/* score */
 	panel(6, 6, 124, 42, colAccent);
 	txt("SCORE", 13, 8, 0.40f, colDim, AL);
 	snprintf(line, sizeof(line), "%d", (int)score);
 	txs(line, 13, 20, 0.78f, colWhite, AL);
 
-	/* monete + moltiplicatore */
+	/* coins + multiplier */
 	panel(136, 6, 92, 24, colGold);
 	sq(TX_COIN, 142, 9, 18, 18, colWhite);
 	snprintf(line, sizeof(line), "%d", coinsRun);
@@ -1470,11 +1470,11 @@ static void draw_hud(void)
 		snprintf(line, sizeof(line), "x%d", (int)m);
 		txs(line, 222, 8 - 4.0f * multPulse, 0.62f * pu, mc, AR);
 	}
-	/* avanzamento verso il prossimo moltiplicatore */
+	/* progress toward the next multiplier */
 	if (mult_base() < 5)
 		bar(138, 30, 88, 2, (float)(coinsRun % 20) / 20.0f, with_a(colHint, 0.9f));
 
-	/* velocita' */
+	/* speed */
 	panel(318, 6, 76, 30, colPink);
 	snprintf(line, sizeof(line), "%d", (int)(speed * 3.6f));
 	txs(line, 386, 7, 0.58f, colWhite, AR);
@@ -1482,7 +1482,7 @@ static void draw_hud(void)
 	bar(324, 29, 64, 3, (speed - D_SPD0[g_diff]) / (D_SPDMAX[g_diff] - D_SPD0[g_diff]),
 		speed > 20.0f ? 0xFF3090FFu : colAccent);
 
-	/* power-up attivi */
+	/* active power-ups */
 	float py = 42;
 	for (int k = 0; k < PW_NUM; k++) {
 		if (pwT[k] <= 0.0f) continue;
@@ -1498,7 +1498,7 @@ static void draw_hud(void)
 		txt("DEMO", 14, 55, 0.48f, colHint, AL);
 	}
 
-	/* scritte che salgono e sfumano */
+	/* texts that rise and fade */
 	for (int i = 0; i < MAXPOP; i++) {
 		if (pops[i].t <= 0.0f) continue;
 		float a = clampf(pops[i].t / 0.5f, 0.0f, 1.0f);
@@ -1506,7 +1506,7 @@ static void draw_hud(void)
 		txs(pops[i].txt, 200, y, 0.55f, with_a(pops[i].col, a), AC);
 	}
 
-	/* conto alla rovescia */
+	/* countdown */
 	if (introT > 0.0f) {
 		int n = (int)ceilf(introT / 0.6f);
 		float f = fmodf(introT, 0.6f) / 0.6f;
@@ -1525,7 +1525,7 @@ static void draw_menu(void)
 		"EXIT" };
 	char line[64];
 
-	/* velatura leggera: la citta' continua a scorrere dietro */
+	/* light veil: the city keeps scrolling behind */
 	sq2(TX_WHITE, 0, 0, 400, 240, with_a(colBg, 0.55f), with_a(colBg, 0.30f));
 	draw_logo(200, 14, 1.30f);
 	txt("an in-screen 3D runner", 200, 56, 0.45f, colDim, AC);
@@ -1569,7 +1569,7 @@ static void draw_pause(void)
 static void draw_results(void)
 {
 	char line[64];
-	float t = clampf((overT - 0.7f) / 0.35f, 0.0f, 1.0f);   /* entrata */
+	float t = clampf((overT - 0.7f) / 0.35f, 0.0f, 1.0f);   /* entrance */
 	if (t <= 0.0f) {
 		txs("CRASH!", 200, 90, 1.1f, with_a(colWall, clampf(overT * 3.0f, 0, 1)), AC);
 		return;
@@ -1608,7 +1608,7 @@ static void draw_results(void)
 		200, y0 + 144, 0.45f, with_a(colWhite, ease), AC);
 }
 
-/* ------------------------- schermo inferiore ------------------------------ */
+/* ------------------------- bottom screen ------------------------------ */
 #define PAUSE_BX 238
 #define PAUSE_BY 196
 #define PAUSE_BW 74
@@ -1690,7 +1690,7 @@ static void draw_bottom(float slider)
 		} else if (state == ST_OVER) {
 			txt("A: retry   B: title", 8, 200, 0.45f, colHint, AL);
 		} else {
-			/* tasto PAUSA sul touch */
+			/* PAUSE button on the touch screen */
 			bool p = state == ST_PAUSE;
 			panel(PAUSE_BX, PAUSE_BY, PAUSE_BW, PAUSE_BH, p ? colHint : colAccent);
 			txs(p ? "RESUME" : "PAUSE", PAUSE_BX + PAUSE_BW / 2, PAUSE_BY + 9,
@@ -1707,7 +1707,7 @@ static void draw_bottom(float slider)
 		audio_ok() ? with_a(colDim, 0.8f) : 0xFF8080FFu, AL);
 }
 
-/* ------------------------------ logica ------------------------------------ */
+/* ------------------------------ logic ------------------------------------ */
 static void start_run(bool asDemo)
 {
 	demo = asDemo;
@@ -1796,7 +1796,7 @@ static void update_play(float dt, u32 kDown)
 		if ((kDown & KEY_LEFT) && lane > 0) { lane--; audio_move(); }
 		if ((kDown & KEY_RIGHT) && lane < 2) { lane++; audio_move(); }
 		if ((kDown & (KEY_A | KEY_B | KEY_UP)) && !airborne) do_jump();
-		/* picchiata: si torna giu' subito per riprendere il controllo */
+		/* dive: come back down immediately to regain control */
 		if ((kDown & KEY_DOWN) && airborne && jumpV > -12.0f) jumpV = -12.0f;
 	}
 
@@ -1810,7 +1810,7 @@ static void update_play(float dt, u32 kDown)
 	}
 	laneX += (LANEX[lane] - laneX) * 0.25f;
 
-	/* scia: registro delle posizioni passate */
+	/* trail: record of past positions */
 	for (int i = TRAIL_N - 1; i > 0; i--) { trailX[i] = trailX[i - 1]; trailY[i] = trailY[i - 1]; }
 	trailX[0] = laneX; trailY[0] = jumpY;
 
@@ -1830,7 +1830,7 @@ static void update_play(float dt, u32 kDown)
 		spawn_row(speed * spawnT);
 	}
 
-	/* ostacoli */
+	/* obstacles */
 	for (int i = 0; i < MAXOBS && state == ST_PLAY; i++) {
 		Obst *o = &obs[i];
 		if (!o->on) continue;
@@ -1852,7 +1852,7 @@ static void update_play(float dt, u32 kDown)
 			bool hit = (o->type == 1) || (jumpY < 0.85f);
 			if (!hit) continue;
 			if (pwT[PW_SHIELD] > 0.0f) {
-				/* lo scudo si consuma e l'ostacolo va in pezzi */
+				/* the shield is used up and the obstacle shatters */
 				pwT[PW_SHIELD] = 0.0f;
 				invulT = 1.0f;
 				o->on = false;
@@ -1869,7 +1869,7 @@ static void update_play(float dt, u32 kDown)
 	}
 	if (state != ST_PLAY) return;
 
-	/* monete */
+	/* coins */
 	bool mag = pwT[PW_MAGNET] > 0.0f;
 	V3 pc = v3(laneX, jumpY + 0.45f, 0.0f);
 	for (int i = 0; i < MAXCOIN; i++) {
@@ -1918,7 +1918,7 @@ static void update_play(float dt, u32 kDown)
 	if (invulT > 0.0f) invulT -= dt;
 	if (chainT > 0.0f) chainT -= dt;
 
-	/* scie di velocita' ai bordi */
+	/* speed streaks at the edges */
 	if (speed > 16.0f && (rand() % 100) < (int)(speed - 14.0f)) {
 		float sx = ((rand() % 100) < 50 ? -1.0f : 1.0f) * (4.0f + rndf() * 4.0f);
 		burst(sx, 0.5f + rndf() * 5.0f, 28.0f, RGBA(0x80, 0xC0, 0xFF, 0xFF), 1,
@@ -2008,19 +2008,19 @@ int main(int argc, char **argv)
 	bool quit = false;
 	u64 lastTick = svcGetSystemTick();
 	while (!quit && aptMainLoop()) {
-		/* logica a passo fisso 1/60 s, ripetuta per i vsync trascorsi: se il
-		 * rendering perde un frame il gioco NON rallenta (scia, inerzie e
-		 * spawn restano identici a 60 fps) */
+		/* fixed-step logic at 1/60 s, repeated for the elapsed vsyncs: if
+		 * rendering drops a frame the game does NOT slow down (trail, inertia and
+		 * spawns stay identical to 60 fps) */
 		const float dt = 1.0f / 60.0f;
 		u64 now = svcGetSystemTick();
 		int steps = (int)((float)(now - lastTick) * 60.0f / SYSCLOCK_ARM11 + 0.5f);
 		lastTick = now;
 		if (steps < 1) steps = 1;
-		if (steps > 4) steps = 4;      /* dopo pause lunghe (HOME): niente salti */
+		if (steps > 4) steps = 4;      /* after long pauses (HOME): no jumps */
 		hidScanInput();
 		u32 kDown = hidKeysDown();
 
-		/* tocco sul tasto PAUSA dello schermo inferiore = START */
+		/* touch on the PAUSE button of the bottom screen = START */
 		if (kDown & KEY_TOUCH) {
 			touchPosition tp;
 			hidTouchRead(&tp);
@@ -2031,7 +2031,7 @@ int main(int argc, char **argv)
 			kDown &= ~KEY_TOUCH;
 		}
 
-		/* DEMO: qualsiasi pulsante riporta al titolo (input consumato) */
+		/* DEMO: any button returns to the title (input consumed) */
 		if (state != ST_TITLE && demo && kDown != 0) {
 			to_title();
 			kDown = 0;
@@ -2058,7 +2058,7 @@ int main(int argc, char **argv)
 				else if (menuSel == 3) audio_set_music(!audio_music_on());
 				else quit = true;
 			}
-			dist += 7.0f * dt * steps;     /* fondale che scorre lentamente */
+			dist += 7.0f * dt * steps;     /* slowly scrolling backdrop */
 			break;
 
 		case ST_PLAY:
@@ -2105,7 +2105,7 @@ int main(int argc, char **argv)
 		if (state != ST_PAUSE)
 			for (int k = 0; k < steps; k++) update_fx(dt);
 
-		/* ---------- stereoscopia: scossa calcolata UNA volta sola ---------- */
+		/* ---------- stereoscopy: shake computed ONCE ---------- */
 		float slider = osGet3DSliderState();
 		bool use3d = slider > 0.02f;
 		gfxSet3D(use3d);
@@ -2122,8 +2122,8 @@ int main(int argc, char **argv)
 		camMid = make_cam();
 		g_horY = OY - FOCAL * camMid.up.z / camMid.fwd.z + g_shy;
 
-		/* 3D: il mondo si proietta una volta sola (camera centrale) e si
-		 * rigioca per i due occhi con la disparita' per vertice */
+		/* 3D: the world is projected once (central camera) and
+		 * replayed for the two eyes with per-vertex disparity */
 		bool replay = false;
 		if (use3d) {
 			g_s = 0.0f;
@@ -2135,7 +2135,7 @@ int main(int argc, char **argv)
 		int passes = use3d ? 2 : 1;
 		for (int eye = 0; eye < passes; eye++) {
 			C3D_RenderTarget *tgt = (eye == 1) ? topR : topL;
-			/* occhio destro: +parallasse, sinistro: -.  Nessuna rotazione. */
+			/* right eye: +parallax, left: -.  No rotation. */
 			g_s = use3d ? ((eye == 1) ? EYE_BASE * slider : -EYE_BASE * slider)
 				: 0.0f;
 
@@ -2151,7 +2151,7 @@ int main(int argc, char **argv)
 					with_a(RGBA(0xFF, 0x40, 0x60, 0xFF), flash * 0.5f) :
 					with_a(colWhite, flash * 0.45f));
 
-			/* HUD: screen-space = esattamente sul piano del vetro */
+			/* HUD: screen-space = exactly on the glass plane */
 			if (state == ST_TITLE) draw_menu();
 			else {
 				draw_hud();
@@ -2160,7 +2160,7 @@ int main(int argc, char **argv)
 			}
 		}
 
-		/* ----- schermo inferiore ----- */
+		/* ----- bottom screen ----- */
 		C2D_TargetClear(bot, colBg);
 		C2D_SceneBegin(bot);
 		rx_scene();
@@ -2169,12 +2169,12 @@ int main(int argc, char **argv)
 
 		g_gpuUse = rx_usage();
 		C3D_FrameEnd(0);
-		/* niente gspWaitForVBlank(): C3D_FrameBegin(SYNCDRAW) aspetta gia' il
-		 * vblank, un secondo wait dimezzava il frame rate a 30 fps */
+		/* no gspWaitForVBlank(): C3D_FrameBegin(SYNCDRAW) already waits for the
+		 * vblank, a second wait halved the frame rate to 30 fps */
 	}
 
-	/* uscita (EXIT o chiusura dal menu HOME): prima si aspetta che la GPU
-	 * finisca l'ultimo frame, poi si libera tutto in ordine inverso */
+	/* exit (EXIT or closing from the HOME menu): first wait for the GPU
+	 * to finish the last frame, then free everything in reverse order */
 	C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
 	C3D_FrameEnd(0);
 	gfxSet3D(false);

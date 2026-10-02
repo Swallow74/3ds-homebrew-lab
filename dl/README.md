@@ -1,8 +1,8 @@
-# dl/ — download riscaricabili
+# dl/ — re-downloadable files
 
-- `devkitpro-pacman-installer.pkg` (v6.0.2, già presente) → installato da
-  `tools/install-toolchain.sh`. Se serve aggiornarlo:
+- `devkitpro-pacman-installer.pkg` (v6.0.2) → installed by
+  `tools/install-toolchain.sh`. Download or update it from:
   https://github.com/devkitPro/pacman/releases/latest
-- Qui vanno anche eventuali prebuild manuali NON pacchettizzati:
-  `makerom`, `bannertool` (macOS), zip di `buildtools`, font/banner di test.
-- I `.pkg` sono ignorati da git (vedi `.gitignore`); tieni solo l'ultima versione.
+- Any manual prebuilt tools that are NOT packaged also go here:
+  `makerom`, `bannertool` (macOS), `buildtools` zips, test fonts/banners.
+- `.pkg` files are ignored by git (see `.gitignore`); keep only the latest version.

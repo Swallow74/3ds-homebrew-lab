@@ -1,61 +1,61 @@
-# Workflow sviluppo 3DS
+# 3DS development workflow
 
-## 1. Setup (una tantum)
+## 1. Setup (one-off)
 
 ```bash
-cd "/Volumes/Kingstone/Progetti/3ds-hb"
+cd 3ds-homebrew-lab
 ./tools/install-toolchain.sh
-# riavvia il Mac, poi:
+# reboot the Mac, then:
 source tools/env.sh
 ```
 
-## 2. Nuova app
+## 2. New app
 
 ```bash
-./tools/new-app.sh minigioco "Mini Gioco" "Alessandro"
-cd project/minigioco
+./tools/new-app.sh mygame "My Game" "Your Name"
+cd project/mygame
 ```
 
 ## 3. Build
 
 ```bash
 source ../../tools/env.sh
-make        # .3dsx (sviluppo rapido)
-make cia    # installer HOME Menu (serve makerom+bannertool)
-make 3ds    # immagine scheda (idem)
-make clean  # pulisce build/ output/
+make        # .3dsx (fast development)
+make cia    # HOME Menu installer (needs makerom+bannertool)
+make 3ds    # card image (same)
+make clean  # cleans build/ output/
 ```
 
 Output in `output/`:
 
-- `<app>.elf` intermedio (debug con gdb/`3dslink` se serve)
+- `<app>.elf` intermediate (debug with gdb/`3dslink` if needed)
 - `<app>.3dsx` + `<app>.smdh`
-- `<app>.cia`, `<app>.3ds` (solo con makerom)
+- `<app>.cia`, `<app>.3ds` (only with makerom)
 
-## 4. Test
+## 4. Testing
 
-- **Hardware (consigliato)**: 3DS con Luma3DS + Homebrew Launcher + FBI
-  - 3dsx: copia `output/*.3dsx`, `*.smdh` in `sd:/3ds/<app>/`
-  - cia: copia `output/*.cia` sulla SD, installa da FBI
-- **Emulatore**: azahar / lime3ds / citra legacy
+- **Hardware (recommended)**: 3DS with Luma3DS + Homebrew Launcher + FBI
+  - 3dsx: copy `output/*.3dsx`, `*.smdh` to `sd:/3ds/<app>/`
+  - cia: copy `output/*.cia` to the SD card, install from FBI
+- **Emulator**: azahar / lime3ds / legacy citra
   - `citra output/<app>.3dsx`
-  - oppure `make citra` (richiede citra in PATH)
-- **Rete (3dslink)**: con 3DS in rete, `3dslink output/<app>.3dsx -a <IP-3DS>`
+  - or `make citra` (needs citra in PATH)
+- **Network (3dslink)**: with the 3DS on the network, `3dslink output/<app>.3dsx -a <3DS-IP>`
 
-## 5. Debug tipico
+## 5. Typical debugging
 
-| Sintomo | Causa probabile |
+| Symptom | Likely cause |
 |---|---|
-| `DEVKITARM not set` | dimenticato `source tools/env.sh` |
-| `3ds.h not found` | `3ds-dev` non installato o env mancante |
-| `makerom not found` | normale senza installazione manuale → solo 3dsx |
-| crash schermo rosso (Luma) | exception ARM11: indirizzo nullo, stack, gfx non init/exit |
-| CIA sovrascrive altra app | UniqueID duplicato → cambia `resources/AppInfo` |
-| cartella con spazi | i Makefile devkitPro non li supportano |
+| `DEVKITARM not set` | forgot `source tools/env.sh` |
+| `3ds.h not found` | `3ds-dev` not installed or env missing |
+| `makerom not found` | normal without manual install → 3dsx only |
+| red screen crash (Luma) | ARM11 exception: null address, stack, gfx not init/exit |
+| CIA overwrites another app | duplicate UniqueID → change `resources/AppInfo` |
+| folder with spaces | devkitPro Makefiles don't support them |
 
-## 6. Risorse
+## 6. Resources
 
 - libctru docs: https://libctru.devkitpro.org / https://devkitpro.org/wiki/Getting_Started
-- Esempi: `sudo dkp-pacman -S 3ds-examples` oppure https://github.com/devkitPro/3ds-examples
-- Forum/supporto: https://gbatemp.net/forums/nintendo-3ds.201/ , devkitPro forums
-- Emulatori: azahar (attivo), lime3ds, citra (legacy)
+- Examples: `sudo dkp-pacman -S 3ds-examples` or https://github.com/devkitPro/3ds-examples
+- Forums/support: https://gbatemp.net/forums/nintendo-3ds.201/ , devkitPro forums
+- Emulators: azahar (active), lime3ds, citra (legacy)

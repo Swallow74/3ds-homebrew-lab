@@ -1,6 +1,6 @@
 /*
   File:        ui.cpp
-  Description: Layer di UI in stile DOS sopra i primitivi di render.cpp
+  Description: DOS-style UI layer on top of the primitives of render.cpp
   Program:     BlockOut / BlockOut 3DS
   Author:      Jean-Luc PONS
 
@@ -9,8 +9,8 @@
   the Free Software Foundation; either version 2 of the License, or
   (at your option) any later version.
 
-  Note sull'hardware: hidTouchRead() restituisce gia' le coordinate in
-  pixel dello schermo basso (320x240).
+  Hardware notes: hidTouchRead() already returns the coordinates in
+  pixels of the bottom screen (320x240).
 */
 
 #include <3ds.h>
@@ -50,7 +50,7 @@ void ui_hline(float x0, float y, float x1, uint32_t col) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Testo                                                               */
+/* Text                                                                */
 /* ------------------------------------------------------------------ */
 
 float ui_key_hint(float x, float y, const char *keys, const char *desc) {
@@ -91,7 +91,7 @@ void ui_kv(float x, float y, float w, const char *label, const char *value,
            uint32_t lc, uint32_t vc) {
   r_print(x, y, 1, lc, label, 0);
   r_print(x + w, y, 1, vc, value, 2);
-  /* puntini di guida fra etichetta e valore */
+  /* guide dots between label and value */
   float a = x + r_print_w(label, 1) + 4.0f;
   float b = x + w - r_print_w(value, 1) - 4.0f;
   for (float d = a; d < b; d += 4.0f) r_rect(d, y + 6.0f, 1.0f, 1.0f, E_DGRAY);
@@ -104,7 +104,7 @@ void ui_kv(float x, float y, float w, const char *label, const char *value,
 void ui_bar(float x, float y, float w, float h, float frac, uint32_t fill) {
   if (frac < 0.0f) frac = 0.0f; else if (frac > 1.0f) frac = 1.0f;
   ui_frame(x, y, w, h, E_DGRAY);
-  /* a segmenti di 4 pixel, come una barra di caratteri pieni */
+  /* in 4-pixel segments, like a bar of filled characters */
   int nSeg = (int)((w - 4.0f) / 4.0f);
   int on = (int)(frac * nSeg + 0.001f);
   for (int i = 0; i < nSeg; i++)
@@ -115,7 +115,7 @@ void ui_menu_row(float x, float y, float w, const char *label, int selected, flo
   if (selected) {
     r_rect(x, y, w, 14.0f, UI_BAR);
     int ph = ((int)(now * 4.0f)) & 1;
-    r_char(x + 4.0f + ph, y + 3.0f, 1, E_YELLOW, 0x10);         /* triangolo */
+    r_char(x + 4.0f + ph, y + 3.0f, 1, E_YELLOW, 0x10);         /* triangle */
     r_char(x + w - 12.0f - ph, y + 3.0f, 1, E_YELLOW, 0x11);
     r_print(x + w * 0.5f, y + 3.0f, 1, E_WHITE, label, 1);
   } else {
@@ -124,7 +124,7 @@ void ui_menu_row(float x, float y, float w, const char *label, int selected, flo
 }
 
 /* ------------------------------------------------------------------ */
-/* Effetti                                                             */
+/* Effects                                                             */
 /* ------------------------------------------------------------------ */
 
 void ui_fade(float alpha) {

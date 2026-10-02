@@ -16,13 +16,13 @@
 #include <string.h>
 #include <math.h>
 
-#define AW 256          /* lato dell'atlas */
+#define AW 256          /* side of the atlas */
 
 static C3D_Tex g_atlas;
 static TexUV   g_uv[TX_NUM];
 static bool    g_ready = false;
 
-/* posizione delle tile nell'atlas (pixel, origine in alto a sinistra) */
+/* position of the tiles in the atlas (pixels, origin at the top left) */
 static const struct { short x, y, w, h; } SLOT[TX_NUM] = {
 	[TX_ROAD]     = {   0,   0, 64, 64 },
 	[TX_FACADE_A] = {  64,   0, 64, 64 },
@@ -54,8 +54,8 @@ static const struct { short x, y, w, h; } SLOT[TX_NUM] = {
 };
 
 /* ------------------------------- canvas ---------------------------------- */
-/* RGBA float, alpha NON premoltiplicata.  Le funzioni mk_* scrivono in
- * coordinate locali della tile corrente (0..W-1, 0..H-1). */
+/* RGBA float, NON-premultiplied alpha.  The mk_* functions write in
+ * local coordinates of the current tile (0..W-1, 0..H-1). */
 static float *g_px;
 static int g_ox, g_oy, W, H;
 
@@ -83,13 +83,13 @@ static unsigned int h2(int x, int y, int s)
 
 static float nz(int x, int y, int s) { return (float)(h2(x, y, s) & 1023) / 1023.0f; }
 
-/* copertura anti-alias: d = distanza con segno dal bordo (negativo = dentro) */
+/* anti-alias coverage: d = signed distance from the edge (negative = inside) */
 static float cov(float d, float soft)
 {
 	return clampf(0.5f - d / soft);
 }
 
-/* distanza dal bordo della tile (per telai e griglie) */
+/* distance from the tile edge (for frames and grids) */
 static float edge_d(int x, int y)
 {
 	float ex = fminf(x + 0.5f, W - 0.5f - x);
@@ -97,7 +97,7 @@ static float edge_d(int x, int y)
 	return fminf(ex, ey);
 }
 
-/* --------------------------- font 5x7 minimale ---------------------------- */
+/* --------------------------- minimal 5x7 font ---------------------------- */
 static const struct { char c; unsigned char row[7]; } FONT[] = {
 	{ '2', { 0x0E, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1F } },
 	{ 'X', { 0x11, 0x11, 0x0A, 0x04, 0x0A, 0x11, 0x11 } },
@@ -110,7 +110,7 @@ static const struct { char c; unsigned char row[7]; } FONT[] = {
 	{ 'H', { 0x11, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11 } },
 };
 
-/* maschera di testo a pixel: 1 dove c'e' il glifo (scala intera) */
+/* pixel text mask: 1 where the glyph is (integer scale) */
 static void text_mask(unsigned char *m, const char *s, int x0, int y0, int sc)
 {
 	for (int i = 0; s[i]; i++) {
@@ -132,7 +132,7 @@ static void text_mask(unsigned char *m, const char *s, int x0, int y0, int sc)
 	}
 }
 
-/* distanza (in pixel, max R) dal pixel acceso piu' vicino della maschera */
+/* distance (in pixels, max R) from the nearest lit pixel of the mask */
 static float mask_dist(const unsigned char *m, int x, int y, int R)
 {
 	float best = (float)R + 1.0f;
@@ -147,7 +147,7 @@ static float mask_dist(const unsigned char *m, int x, int y, int R)
 	return best;
 }
 
-/* ------------------------------ le tile ----------------------------------- */
+/* ------------------------------ the tiles ----------------------------------- */
 
 static void mk_road(void)
 {
@@ -155,11 +155,11 @@ static void mk_road(void)
 		for (int x = 0; x < W; x++) {
 			float l = 0.30f + 0.05f * (nz(x, y, 1) - 0.5f) +
 				0.04f * (nz(x / 4, y / 4, 2) - 0.5f);
-			/* giunti fra le piastre: incavo scuro + spigolo chiaro */
+			/* joints between the slabs: dark groove + light edge */
 			if (x == 0 || y == 0 || y == 32) l = 0.13f;
 			else if (x == 1 || y == 1 || y == 33) l = 0.44f;
 			else if (x == W - 1 || y == H - 1 || y == 31) l = 0.20f;
-			/* rivetti */
+			/* rivets */
 			static const int RV[6][2] = {
 				{ 5, 5 }, { 58, 5 }, { 5, 37 }, { 58, 37 }, { 31, 5 }, { 31, 37 } };
 			for (int k = 0; k < 6; k++) {
@@ -167,7 +167,7 @@ static void mk_road(void)
 				float d = sqrtf(dx * dx + dy * dy);
 				if (d < 1.6f) l = 0.58f - d * 0.12f;
 			}
-			/* usura: leggera striscia piu' chiara dove passano i pattini */
+			/* wear: a lighter streak where the skids pass */
 			float wear = fabsf(x + 0.5f - 32.0f) < 10.0f ? 0.03f : 0.0f;
 			G(x, y, l + wear, 1.0f);
 		}
@@ -195,23 +195,23 @@ static void mk_facade_a(void)
 			int cx = x / 16, cy = y / 16, ox = x % 16, oy = y % 16;
 			float n = 0.03f * (nz(x, y, 4) - 0.5f);
 			float r = 0.30f + n, g = 0.30f + n, b = 0.35f + n;
-			if (ox < 2) { r += 0.07f; g += 0.07f; b += 0.08f; }   /* lesena  */
-			if (oy < 2) { r -= 0.09f; g -= 0.09f; b -= 0.08f; }   /* marcapiano */
-			if (ox >= 3 && ox <= 13 && oy == 13) { r = g = b = 0.50f; } /* davanzale */
+			if (ox < 2) { r += 0.07f; g += 0.07f; b += 0.08f; }   /* pilaster */
+			if (oy < 2) { r -= 0.09f; g -= 0.09f; b -= 0.08f; }   /* string course */
+			if (ox >= 3 && ox <= 13 && oy == 13) { r = g = b = 0.50f; } /* windowsill */
 			if (ox >= 4 && ox <= 12 && oy >= 4 && oy <= 12) {
 				unsigned int hv = h2(cx, cy, 7);
 				if ((hv & 1023) < 640) {
-					/* finestra accesa: tre temperature di luce */
+					/* lit window: three light temperatures */
 					static const float WC[3][3] = {
 						{ 1.00f, 0.80f, 0.45f }, { 1.00f, 0.62f, 0.36f },
 						{ 0.95f, 0.90f, 0.72f } };
 					const float *c = WC[(hv >> 10) % 3];
 					float lvl = 0.72f + 0.28f * (float)((hv >> 12) & 255) / 255.0f;
 					lvl *= 0.80f + 0.20f * (float)(oy - 4) / 8.0f;
-					if (ox == 8) lvl *= 0.55f;                       /* montante */
+					if (ox == 8) lvl *= 0.55f;                       /* mullion */
 					r = c[0] * lvl; g = c[1] * lvl; b = c[2] * lvl;
 				} else {
-					float sh = ((ox + oy) % 6 < 2) ? 0.07f : 0.0f;  /* riflesso */
+					float sh = ((ox + oy) % 6 < 2) ? 0.07f : 0.0f;  /* reflection */
 					r = 0.08f + sh; g = 0.11f + sh; b = 0.20f + sh;
 				}
 			}
@@ -245,7 +245,7 @@ static void mk_facade_b(void)
 		}
 }
 
-/* paratia del muro: mattoni sfalsati con bordi luminosi + scanline */
+/* wall bulkhead: staggered bricks with glowing edges + scanlines */
 static void mk_energy(void)
 {
 	for (int y = 0; y < H; y++)
@@ -272,8 +272,8 @@ static void mk_hull(void)
 			if (fx < 1.2f || fy < 1.2f) l = 0.45f;
 			else if (fx < 2.2f || fy < 2.2f) l = 0.98f;
 			if (fabsf((x + 0.5f) - (y + 0.5f) * 0.5f - 40.0f) < 0.8f && y > 34)
-				l = 0.50f;                                    /* taglio obliquo */
-			if (y >= 44 && y <= 49) l *= 0.55f;                /* banda di colore */
+				l = 0.50f;                                    /* oblique cut */
+			if (y >= 44 && y <= 49) l *= 0.55f;                /* color band */
 			for (int k = 0; k < 4; k++) {
 				float rx = (k & 1) ? 27.5f : 4.5f, ry = (k & 2) ? 27.5f : 4.5f;
 				float dx = fx - rx, dy = fy - ry;
@@ -294,7 +294,7 @@ static void mk_sun(void)
 			float r = 1.00f, g = 0.93f + (0.20f - 0.93f) * t,
 				b = 0.35f + (0.62f - 0.35f) * t;
 			float a = cov(d - 30.0f, 1.6f);
-			/* tagli orizzontali nella meta' bassa, sempre piu' larghi */
+			/* horizontal cuts in the lower half, wider and wider */
 			if (y > 30) {
 				int yy = y - 30;
 				int gap = 1 + yy / 8;
@@ -324,7 +324,7 @@ static void mk_roof(void)
 		for (int x = 0; x < W; x++) {
 			float l = 0.26f + 0.05f * (nz(x, y, 8) - 0.5f);
 			if (x >= 8 && x <= 22 && y >= 7 && y <= 23)
-				l = ((y - 7) % 3 == 0) ? 0.40f : 0.16f;     /* griglia di sfiato */
+				l = ((y - 7) % 3 == 0) ? 0.40f : 0.16f;     /* vent grille */
 			if (x >= 34 && x <= 56 && y >= 9 && y <= 21) {
 				l = 0.40f;
 				if (x == 34 || x == 56 || y == 9 || y == 21) l = 0.58f;
@@ -385,23 +385,23 @@ static void mk_coin(void)
 			float d = sqrtf(dx * dx + dy * dy);
 			float r = d / 14.5f;
 			float a = cov(d - 14.5f, 1.4f);
-			/* luce da alto-sinistra */
+			/* light from the top-left */
 			float lf = 0.78f + 0.22f * clampf((-dx - dy) / 20.0f + 0.5f);
 			float cr = 1.00f, cg = 0.78f, cb = 0.18f;
-			if (r > 0.80f) {                              /* bordo zigrinato */
+			if (r > 0.80f) {                              /* knurled edge */
 				float k = ((int)(atan2f(dy, dx) * 9.0f) & 1) ? 0.85f : 1.0f;
 				cr = 0.86f * k; cg = 0.56f * k; cb = 0.10f * k;
 				lf = 0.70f + 0.30f * clampf((-dx - dy) / 16.0f + 0.5f);
-			} else if (r > 0.62f && r < 0.70f) {          /* incisione */
+			} else if (r > 0.62f && r < 0.70f) {          /* engraving */
 				cr = 0.80f; cg = 0.52f; cb = 0.08f;
 			} else if (r <= 0.62f) {
-				/* stella a 5 punte in rilievo */
+				/* embossed 5-point star */
 				float th = atan2f(dx, -dy);
 				float c5 = fabsf(cosf(2.5f * th));
 				float rb = 0.46f * (0.48f + 0.52f * c5 * c5 * c5);
 				if (r < rb) { cr = 1.00f; cg = 0.95f; cb = 0.58f; }
 			}
-			/* riflesso speculare */
+			/* specular reflection */
 			float hx = dx + 5.0f, hy = dy + 6.0f;
 			float spec = clampf(1.0f - sqrtf(hx * hx + hy * hy) / 5.0f);
 			spec = spec * spec * 0.8f;
@@ -409,7 +409,7 @@ static void mk_coin(void)
 		}
 }
 
-/* icone: contorno scuro di 1 pixel attorno alla maschera, colori veri */
+/* icons: 1-pixel dark outline around the mask, true colors */
 static void mk_magnet(void)
 {
 	for (int y = 0; y < H; y++)
@@ -417,7 +417,7 @@ static void mk_magnet(void)
 			float px = x + 0.5f, py = y + 0.5f;
 			float dx = px - 16.0f, dy = py - 15.0f;
 			float d = sqrtf(dx * dx + dy * dy);
-			/* U: meta' bassa di una corona + due gambe */
+			/* U: lower half of a crown + two legs */
 			float inU = -1.0f;
 			if (py >= 15.0f) inU = fminf(d - 5.0f, 12.0f - d);
 			else {
@@ -426,10 +426,10 @@ static void mk_magnet(void)
 				inU = fmaxf(lg, rg);
 				inU = fminf(inU, py - 4.0f);
 			}
-			float a = clampf(inU + 1.6f);          /* include il contorno */
+			float a = clampf(inU + 1.6f);          /* includes the outline */
 			float r, g, b;
 			if (inU < 0.5f) { r = 0.12f; g = 0.05f; b = 0.08f; }
-			else if (py < 9.0f) {                  /* punte d'acciaio */
+			else if (py < 9.0f) {                  /* steel tips */
 				r = 0.92f; g = 0.94f; b = 1.00f;
 			} else {
 				float lf = 0.75f + 0.25f * clampf((20.0f - px) / 16.0f);
@@ -456,7 +456,7 @@ static void mk_shield(void)
 				float t = clampf((py - 5.0f) / 22.0f);
 				r = 0.10f - 0.05f * t; g = 0.42f - 0.20f * t; b = 0.90f - 0.30f * t;
 				if (fabsf(px - 16.0f) < 1.5f || fabsf(py - 13.0f) < 1.5f) {
-					r = 0.85f; g = 0.97f; b = 1.00f;    /* croce centrale */
+					r = 0.85f; g = 0.97f; b = 1.00f;    /* central cross */
 				}
 			}
 			P(x, y, r, g, b, a);
@@ -549,7 +549,7 @@ static void mk_visor(void)
 		}
 }
 
-/* profilo trasversale morbido: nucleo pieno + alone (linee al neon) */
+/* soft cross profile: solid core + halo (neon lines) */
 static void mk_trail(void)
 {
 	for (int y = 0; y < H; y++)
@@ -574,13 +574,13 @@ static void mk_canopy(void)
 		}
 }
 
-/* insegna: tubi al neon (nucleo bianco + alone) attorno a una scritta */
+/* sign: neon tubes (white core + halo) around lettering */
 static void mk_sign(const char *txt, int tx, bool arrow)
 {
 	unsigned char m[64 * 32];
 	memset(m, 0, sizeof(m));
 	text_mask(m, txt, tx, 9, 2);
-	/* cornice arrotondata */
+	/* rounded frame */
 	for (int y = 0; y < H; y++)
 		for (int x = 0; x < W; x++) {
 			float e = edge_d(x, y);
@@ -619,7 +619,7 @@ static void mk_dash(void)
 
 /* ------------------------------ upload ------------------------------------- */
 
-/* indice Morton dentro un blocco 8x8 */
+/* Morton index within an 8x8 block */
 static inline unsigned morton(unsigned x, unsigned y)
 {
 	return (x & 1) | ((y & 1) << 1) | ((x & 2) << 1) | ((y & 2) << 2) |
@@ -638,7 +638,7 @@ static void swizzle(const float *src, int w, u32 *dst)
 		}
 }
 
-/* dimezza il livello: media pesata sull'alpha (niente aloni scuri) */
+/* halves the level: alpha-weighted average (no dark halos) */
 static void downsample(const float *src, int w, float *dst)
 {
 	int h = w / 2;
@@ -687,20 +687,20 @@ bool texgen_init(void)
 		return false;
 	}
 
-	/* pixel non coperti: bianco trasparente */
+	/* uncovered pixels: transparent white */
 	for (int i = 0; i < AW * AW; i++) {
 		g_px[i * 4 + 0] = g_px[i * 4 + 1] = g_px[i * 4 + 2] = 1.0f;
 	}
 	for (int i = 0; i < TX_NUM; i++) {
 		g_ox = SLOT[i].x; g_oy = SLOT[i].y; W = SLOT[i].w; H = SLOT[i].h;
 		FN[i]();
-		/* mezzo texel di margine: niente sbavature dalla tile accanto */
+		/* half a texel of margin: no bleeding from the neighboring tile */
 		g_uv[i].u0 = (g_ox + 0.5f) / AW;
 		g_uv[i].u1 = (g_ox + W - 0.5f) / AW;
 		g_uv[i].v0 = 1.0f - (g_oy + 0.5f) / AW;
 		g_uv[i].v1 = 1.0f - (g_oy + H - 0.5f) / AW;
 	}
-	/* il bianco pieno si campiona al centro: nessun filtro ai bordi */
+	/* solid white is sampled at the center: no filtering at the edges */
 	g_uv[TX_WHITE].u0 = g_uv[TX_WHITE].u1 = (SLOT[TX_WHITE].x + 8.0f) / AW;
 	g_uv[TX_WHITE].v0 = g_uv[TX_WHITE].v1 = 1.0f - (SLOT[TX_WHITE].y + 8.0f) / AW;
 
@@ -709,7 +709,7 @@ bool texgen_init(void)
 		return false;
 	}
 
-	/* livello 0, poi dimezzamenti successivi fino a maxLevel */
+	/* level 0, then successive halvings up to maxLevel */
 	const float *cur = g_px;
 	int w = AW;
 	for (int level = 0; level <= g_atlas.maxLevel; level++) {

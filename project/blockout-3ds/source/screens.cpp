@@ -1,7 +1,7 @@
 /*
   File:        screens.cpp
-  Description: Schermate di interfaccia (intro, menu, setup, punteggi, pausa,
-               fine partita) in stile MS-DOS sopra ui.h / render.h
+  Description: Interface screens (intro, menu, setup, scores, pause,
+               game over) in MS-DOS style on top of ui.h / render.h
   Program:     BlockOut / BlockOut 3DS
   Author:      Jean-Luc PONS
 
@@ -10,14 +10,14 @@
   the Free Software Foundation; either version 2 of the License, or
   (at your option) any later version.
 
-  Adattamenti richiesti dall'hardware 3DS (documentati):
-   * l'originale disegnava le pagine del menu con le proprie classi OpenGL
-     (PageMainMenu / PageChooseSetup / PageHallOfFame...); qui le stesse
-     pagine sono rifatte sopra il renderer software, in stile DOS: fondo
-     nero, font 8x8, palette EGA, barra di selezione blu;
-   * il logo "BLOCKOUT" e' un'insegna 3D a voxel costruita dai glifi del
-     font (i cubi ruotano lentamente e sporgono dallo schermo in 3D);
-   * il touch esiste solo sullo schermo basso: li' stanno le liste toccabili.
+  Adaptations required by the 3DS hardware (documented):
+   * the original drew the menu pages with its own OpenGL classes
+     (PageMainMenu / PageChooseSetup / PageHallOfFame...); here the same
+     pages are rebuilt on top of the software renderer, in DOS style: black
+     background, 8x8 font, EGA palette, blue selection bar;
+   * the "BLOCKOUT" logo is a 3D voxel sign built from the font
+     glyphs (the cubes rotate slowly and stick out of the screen in 3D);
+   * touch exists only on the bottom screen: the touchable lists live there.
 */
 
 #include <3ds.h>
@@ -43,7 +43,7 @@ extern "C" const u8 default_font_bin[];
 #define BOTW  320
 
 /* ------------------------------------------------------------------ */
-/* Piccoli servizi                                                     */
+/* Small helpers                                                       */
 /* ------------------------------------------------------------------ */
 
 static float sNow(void) {
@@ -62,7 +62,7 @@ static void poll(void) {
   tX = tx; tY = ty; tJust = jd;
 }
 
-/* Area di tocco: un solo colpo per frame */
+/* Touch area: a single hit per frame */
 static int sHit(float x, float y, float w, float h) {
   if (!tJust) return 0;
   if (tX < (int)x || tX >= (int)(x + w) || tY < (int)y || tY >= (int)(y + h)) return 0;
@@ -70,7 +70,7 @@ static int sHit(float x, float y, float w, float h) {
   return 1;
 }
 
-/* Pressione con ripetizione automatica (menu e valori) */
+/* Press with automatic repeat (menus and values) */
 static int repeatKey(u32 bits) {
   static float next[32];
   static u32 last = 0;
@@ -110,7 +110,7 @@ static const char *fmtDate(uint32 t) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Proiezione 3D per i menu (con stereoscopia)                          */
+/* 3D projection for the menus (with stereoscopy)                      */
 /* ------------------------------------------------------------------ */
 
 static float pCx = 200.0f, pCy = 120.0f, pF = 300.0f, pConv = 10.0f;
@@ -119,7 +119,7 @@ static void proj_setup(float cx, float cy, float f, float conv) {
   pCx = cx; pCy = cy; pF = f; pConv = conv;
 }
 
-/* disparita' positiva (dietro lo schermo) = immagini non incrociate */
+/* positive disparity (behind the screen) = uncrossed images */
 static int proj(float x, float y, float z, float *sx, float *sy) {
   if (z < 0.05f) return 0;
   float disp = r_stereo_px() * (1.0f - pConv / z);
@@ -147,11 +147,11 @@ static uint32_t shade(uint32_t c, float k) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Logo 3D a voxel                                                      */
+/* 3D voxel logo                                                        */
 /* ------------------------------------------------------------------ */
-/* "BLOCKOUT" scritto con il font 8x8: ogni pixel acceso e' un cubo. I
-   pixel contigui di una riga sono fusi in un solo parallelepipedo (meno
-   poligoni). I colori delle lettere sono quelli degli strati del pozzo. */
+/* "BLOCKOUT" written with the 8x8 font: every lit pixel is a cube. The
+   contiguous pixels of a row are merged into a single cuboid (fewer
+   polygons). The letter colors are those of the pit layers. */
 
 typedef struct { signed char x0, x1, row, letter; } LogoRun;
 static LogoRun gRuns[400];
@@ -186,15 +186,15 @@ static const uint32_t kLayerCol[8] = {
   EGA(0xF0, 0x30, 0xD0), EGA(0xF0, 0xA0, 0x10), EGA(0xD8, 0xD8, 0xD8), EGA(0x30, 0x40, 0xFF)
 };
 
-/* cx,cy: centro sullo schermo; unit: lato di un voxel in pixel */
+/* cx,cy: center on the screen; unit: side of a voxel in pixels */
 static void drawLogo(float cx, float cy, float unit, float t) {
   if (gNbRuns < 0) logoInit();
-  /* camera lontana (in voxel): prospettiva morbida, niente deformazioni */
+  /* far camera (in voxels): soft perspective, no distortion */
   const float Z0 = 110.0f;
-  proj_setup(cx, cy, unit * Z0, Z0 + 6.0f);   /* il logo sporge dallo schermo */
+  proj_setup(cx, cy, unit * Z0, Z0 + 6.0f);   /* the logo sticks out of the screen */
   float ay = 0.28f * sinf(t * 0.55f);
   float ax = 0.20f + 0.08f * sinf(t * 0.37f);
-  const float D = 2.0f;                       /* spessore in voxel */
+  const float D = 2.0f;                       /* thickness in voxels */
 
   static const float fn[6][3] = {
     { 0, 0, -1 }, { 0, 1, 0 }, { 0, -1, 0 }, { -1, 0, 0 }, { 1, 0, 0 }, { 0, 0, 1 }
@@ -202,7 +202,7 @@ static void drawLogo(float cx, float cy, float unit, float t) {
   static const int F[6][4] = {
     { 0, 1, 3, 2 }, { 0, 4, 5, 1 }, { 2, 3, 7, 6 }, { 0, 2, 6, 4 }, { 1, 5, 7, 3 }, { 4, 6, 7, 5 }
   };
-  /* due passate: fianchi, poi facce frontali */
+  /* two passes: sides, then front faces */
   for (int pass = 0; pass < 2; pass++) {
     for (int i = 0; i < gNbRuns; i++) {
       const LogoRun *r = &gRuns[i];
@@ -235,19 +235,19 @@ static void drawLogo(float cx, float cy, float unit, float t) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Polycube a filo che ruota (menu)                                     */
+/* Rotating wireframe polycube (menu)                                   */
 /* ------------------------------------------------------------------ */
 
-/* Pezzi dimostrativi (i polycubi del gioco esistono solo dopo il primo
-   StartGame): cubi in coordinate intere, contorno calcolato come la
-   lineList dell'originale (spigoli non complanari/interni esclusi). */
+/* Demo pieces (the game's polycubes only exist after the first
+   StartGame): cubes in integer coordinates, outline computed like the
+   original's lineList (non-coplanar/inner edges excluded). */
 static const signed char kDemoPieces[][5][3] = {
   { {0,0,0}, {1,0,0}, {2,0,0}, {2,1,0}, {9,9,9} },   /* L */
-  { {0,0,0}, {1,0,0}, {1,1,0}, {1,1,1}, {9,9,9} },   /* elica */
-  { {0,0,0}, {1,0,0}, {0,1,0}, {0,0,1}, {9,9,9} },   /* angolo 3D */
+  { {0,0,0}, {1,0,0}, {1,1,0}, {1,1,1}, {9,9,9} },   /* helix */
+  { {0,0,0}, {1,0,0}, {0,1,0}, {0,0,1}, {9,9,9} },   /* 3D corner */
   { {0,0,0}, {1,0,0}, {2,0,0}, {1,1,0}, {9,9,9} },   /* T */
   { {0,0,0}, {1,0,0}, {1,1,0}, {2,1,0}, {9,9,9} },   /* S */
-  { {0,0,0}, {1,0,0}, {0,1,0}, {1,1,0}, {0,0,1} },   /* quadrato + 1 */
+  { {0,0,0}, {1,0,0}, {0,1,0}, {1,1,0}, {0,0,1} },   /* square + 1 */
 };
 #define DEMO_NB 6
 
@@ -260,8 +260,8 @@ static int demoHas(int p, int x, int y, int z) {
   return 0;
 }
 
-/* Spigolo lungo l'asse "ax" che parte dal vertice (x,y,z): e' visibile se
-   i 4 cubi attorno sono 1 o 3, oppure 2 in diagonale */
+/* Edge along the "ax" axis starting from vertex (x,y,z): it is visible if
+   the 4 surrounding cubes are 1 or 3, or 2 diagonal */
 static int demoEdge(int p, int ax, int x, int y, int z) {
   int o[4];
   int k = 0;
@@ -275,7 +275,7 @@ static int demoEdge(int p, int ax, int x, int y, int z) {
     }
   int n = o[0] + o[1] + o[2] + o[3];
   if (n == 1 || n == 3) return 1;
-  if (n == 2 && o[0] == o[3]) return 1;   /* diagonale */
+  if (n == 2 && o[0] == o[3]) return 1;   /* diagonal */
   return 0;
 }
 
@@ -283,7 +283,7 @@ static void drawSpinningPiece(int p, float cx, float cy, float size, float t, ui
   const float Z0 = 7.0f;
   proj_setup(cx, cy, size * Z0, Z0 + 0.5f);
   float ay = t * 0.9f, ax = 0.5f + 0.3f * sinf(t * 0.6f);
-  /* centro del pezzo */
+  /* center of the piece */
   float mx = 0, my = 0, mz = 0; int nc = 0;
   for (int i = 0; i < 5; i++) {
     const signed char *c = kDemoPieces[p][i];
@@ -310,12 +310,12 @@ static void drawSpinningPiece(int p, float cx, float cy, float size, float t, ui
 }
 
 /* ------------------------------------------------------------------ */
-/* Anteprima prospettica del pozzo (setup)                              */
+/* Perspective preview of the pit (setup)                               */
 /* ------------------------------------------------------------------ */
 
 static void drawPitPreview(float cx, float cy, float size, int w, int h, int d) {
   float m = (float)(w > h ? w : h);
-  float cs = 1.0f / m;                        /* la bocca e' larga 1 */
+  float cs = 1.0f / m;                        /* the mouth is 1 wide */
   float hw = w * cs * 0.5f, hh = h * cs * 0.5f;
   const float Z0 = 1.0f;
   proj_setup(cx, cy, size * Z0, Z0);
@@ -346,7 +346,7 @@ static void drawPitPreview(float cx, float cy, float size, int w, int h, int d) 
 #undef PL
 }
 
-/* Riga "cielo stellato" leggerissima dietro i menu: puntini fissi */
+/* Very light "starry sky" row behind the menus: fixed dots */
 static void drawStars(float t) {
   static float sx[60], sy[60];
   static int init = 0;
@@ -358,7 +358,7 @@ static void drawStars(float t) {
     }
     init = 1;
   }
-  float d = r_stereo_px() * 0.8f * (r_eye() ? 0.5f : -0.5f);   /* molto dietro */
+  float d = r_stereo_px() * 0.8f * (r_eye() ? 0.5f : -0.5f);   /* far behind */
   for (int i = 0; i < 60; i++) {
     int tw = ((int)(t * 3.0f) + i) % 9;
     uint32_t c = (tw == 0) ? E_WHITE : (i & 1) ? E_DGRAY : E_BLUE;
@@ -414,7 +414,7 @@ void runIntroScreen(void) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Menu principale                                                     */
+/* Main menu                                                           */
 /* ------------------------------------------------------------------ */
 
 struct MenuEntry { const char *label; const char *desc; };
@@ -462,7 +462,7 @@ int runMenuScreen(Game *game, SetupManager *sm) {
       if (now > 3.0f) act = seq[atStep++ % 5];
     }
 #endif
-    /* come l'originale: dopo un po' di inattivita' parte la demo */
+    /* like the original: after a while of inactivity the demo starts */
     if (act == SCR_NONE && sNow() - idle > 40.0f) act = SCR_DEMO;
 
     render_clear(COL_BG);
@@ -562,7 +562,7 @@ static void setupApply(SetupManager *sm, SoundManager *snd, int sel, int dv) {
                    audio_set_enable(sm->GetSound() ? true : false); break;
     case SR_STYLE: sm->SetSoundType(sm->GetSoundType() == SOUND_BLOCKOUT ? SOUND_BLOCKOUT2 : SOUND_BLOCKOUT);
                    audio_set_style(sm->GetSoundType() == SOUND_BLOCKOUT);
-                   /* anteprima dello stile */
+                   /* style preview */
                    audio_set_lines(2);
                    if (sm->GetSoundType() == SOUND_BLOCKOUT) audio_line2(); else audio_line();
                    break;
@@ -733,7 +733,7 @@ void runHiScoreScreen(SetupManager *sm) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Menu di pausa                                                       */
+/* Pause menu                                                          */
 /* ------------------------------------------------------------------ */
 
 int runPauseMenu(Game *game) {
@@ -770,7 +770,7 @@ int runPauseMenu(Game *game) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Fine partita + hall of fame                                          */
+/* Game over + hall of fame                                            */
 /* ------------------------------------------------------------------ */
 
 #define CHARN 39
@@ -782,7 +782,7 @@ int runGameOverScreen(Game *game, SetupManager *sm, SCOREREC *added, int recordP
   sm->GetHighScore(all);
   SCOREREC *sc = game->GetScore();
 
-  /* nome precedente come proposta (come l'originale ricorda l'ultimo) */
+  /* previous name as a suggestion (like the original remembers the last one) */
   static char lastName[11] = "PLAYER";
   int editing = (added != NULL) ? 1 : 0;
   char editText[11];
@@ -808,18 +808,18 @@ int runGameOverScreen(Game *game, SetupManager *sm, SCOREREC *added, int recordP
       if (repeatKey(KEY_DOWN | KEY_CPAD_DOWN)) { editText[editPos] = CHARSET[(ci + CHARN - 1) % CHARN]; audio_tchh(); }
       if (repeatKey(KEY_RIGHT | KEY_CPAD_RIGHT)) { if (editPos < 9) editPos++; audio_tchh(); }
       if (repeatKey(KEY_LEFT | KEY_CPAD_LEFT))   { if (editPos > 0) editPos--; audio_tchh(); }
-      if (pDown & KEY_Y) {                        /* cancella */
+      if (pDown & KEY_Y) {                        /* delete */
         for (int i = editPos; i < 9; i++) editText[i] = editText[i + 1];
         editText[9] = ' ';
         audio_blub();
       }
-      if (pDown & KEY_X) {                        /* inserisce uno spazio */
+      if (pDown & KEY_X) {                        /* inserts a space */
         for (int i = 9; i > editPos; i--) editText[i] = editText[i - 1];
         editText[editPos] = ' ';
         audio_blub();
       }
       if ((pDown & (KEY_A | KEY_START)) || (AUTOTEST && now > 3.0f)) {
-        /* nome senza spazi finali */
+        /* name without trailing spaces */
         char nm[11];
         memcpy(nm, editText, 11);
         for (int i = 9; i >= 0 && nm[i] == ' '; i--) nm[i] = '\0';

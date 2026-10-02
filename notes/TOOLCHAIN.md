@@ -1,45 +1,45 @@
-# Toolchain 3DS su macOS (Apple Silicon)
+# 3DS toolchain on macOS (Apple Silicon)
 
-## Componenti
+## Components
 
-- `dkp-pacman` → package manager devkitPro (`/opt/devkitpro`)
+- `dkp-pacman` → devkitPro package manager (`/opt/devkitpro`)
 - `3ds-dev` → devkitARM (gcc arm-none-eabi) + libctru + citro3d/citro2d + 3dstools
   - `3dsxtool` `.elf` → `.3dsx` (Homebrew Launcher)
-  - `smdhtool` icona+metadati → `.smdh`
-  - `tex3ds`, `picasso` (shader/gfx), `3dslink`
-- `3ds-portlibs` → zlib, png, jpeg, freetype, ecc. portate
-- `makerom` + `bannertool` → SOLO per `.cia` / `.3ds` (NON in pacman, installazione manuale)
+  - `smdhtool` icon + metadata → `.smdh`
+  - `tex3ds`, `picasso` (shaders/gfx), `3dslink`
+- `3ds-portlibs` → ported zlib, png, jpeg, freetype, etc.
+- `makerom` + `bannertool` → ONLY for `.cia` / `.3ds` (NOT in pacman, manual install)
 
-## Installazione (una tantum, richiede sudo)
+## Installation (one-off, needs sudo)
 
 ```bash
-cd "/Volumes/Kingstone/Progetti/3ds-hb"
+cd 3ds-homebrew-lab
 ./tools/install-toolchain.sh
-# se chiede Rosetta 2 (binari x86_64): softwareupdate --install-rosetta
-# riavvia il Mac alla fine (attiva /etc/profile.d/devkit-env.sh)
+# if it asks for Rosetta 2 (x86_64 binaries): softwareupdate --install-rosetta
+# reboot the Mac at the end (activates /etc/profile.d/devkit-env.sh)
 ```
 
-Cosa fa lo script:
+What the script does:
 
-1. Verifica Xcode CLT (`xcode-select -p`)
-2. Installa `dl/devkitpro-pacman-installer.pkg` (v6.0.2, già in `dl/`)
+1. Checks Xcode CLT (`xcode-select -p`)
+2. Installs `dl/devkitpro-pacman-installer.pkg` (v6.0.2, expected in `dl/`)
 3. `sudo dkp-pacman -Syu` + `sudo dkp-pacman -S 3ds-dev 3ds-portlibs 3dstools`
-4. Verifica `arm-none-eabi-gcc`, `3dsxtool`, `smdhtool`
+4. Checks `arm-none-eabi-gcc`, `3dsxtool`, `smdhtool`
 
-Aggiornamenti successivi: `sudo dkp-pacman -Syu`
+Later updates: `sudo dkp-pacman -Syu`
 
-## Env per shell
+## Shell environment
 
 ```bash
 source tools/env.sh
 echo $DEVKITPRO $DEVKITARM   # /opt/devkitpro /opt/devkitpro/devkitARM
 ```
 
-Il Makefile del template abortisce con errore chiaro se `DEVKITARM` è vuoto.
+The template Makefile aborts with a clear error if `DEVKITARM` is empty.
 
-## makerom / bannertool (dettagli in CIA-vs-3DSX.md)
+## makerom / bannertool (details in CIA-vs-3DSX.md)
 
-- Sorgenti: makerom (3DSGuy/Project_CTR), bannertool (titler/bannertool)
-- Destinazione: `$DEVKITARM/bin` (già in PATH via env.sh) oppure `/usr/local/bin`
-- Verifica: `which makerom bannertool`
-- Su Apple Silicon possono richiedere Rosetta 2.
+- Sources: makerom (3DSGuy/Project_CTR), bannertool (titler/bannertool)
+- Destination: `$DEVKITARM/bin` (already in PATH via env.sh) or `/usr/local/bin`
+- Check: `which makerom bannertool`
+- On Apple Silicon they may need Rosetta 2.

@@ -14,10 +14,10 @@
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
   GNU General Public License for more details.
 
-  Port 3DS: generated (tools/gen_init_polyCube.py) con gli stessi dati
-  AddCube/SetInfo dell'originale InitPolyCube.cpp di BlockOut II 2.5; la
-  chiamata OpenGL Create(cubeSide,origin,transparent,wEdge) e' sostituita da
-  SetGeometry(cubeSide,origin,transparent) (PolyCube.cpp del port).
+  3DS port: generated from the same AddCube/SetInfo data as the
+  original InitPolyCube.cpp of BlockOut II 2.5; the
+  OpenGL call Create(cubeSide,origin,transparent,wEdge) is replaced by
+  SetGeometry(cubeSide,origin,transparent) (PolyCube.cpp of the port).
 */
 
 #ifdef AI_TEST

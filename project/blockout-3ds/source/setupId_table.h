@@ -1,9 +1,9 @@
 /*
   File:        setupId_table.h
-  Description: Tabella setupId copiata ESATTAMENTE da SetupManager.cpp di
-               BlockOut II 2.5 (GPL): converte le 975 combinazioni possibili
-               in 585 configurazioni (w,h == h,w sono lo stesso setup).
-               Generata da tools/gen_setup_id.py
+  Description: setupId table copied EXACTLY from SetupManager.cpp of
+               BlockOut II 2.5 (GPL): converts the 975 possible combinations
+               into 585 configurations (w,h == h,w are the same setup).
+               Generated from the original table.
 */
 
 #ifndef _SETUPIDTABLEH_

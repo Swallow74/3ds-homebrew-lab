@@ -39,7 +39,7 @@ public:
                    float *rx, float *ry, float *rz, float *rw);
 
   GLfloat *GetGL();
-  const float *Get() const;   // matrice row-major (16 float)
+  const float *Get() const;   // row-major matrix (16 floats)
   void FromGL(GLfloat *m);
 
   float _11; float _12; float _13; float _14;

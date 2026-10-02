@@ -1,35 +1,35 @@
 /*
   File:        render.cpp
-  Description: Renderer software 3DS (citro2D) del port di BlockOut II,
-               con la resa grafica del BlockOut originale per MS-DOS.
+  Description: 3DS software renderer (citro2D) for the BlockOut II port,
+               with the look of the original MS-DOS BlockOut.
 
-  Il renderer riproduce il pipeline OpenGL di BlockOut II:
+  The renderer reproduces the BlockOut II OpenGL pipeline:
 
-   * proiezione gluPerspective(60.0, 1.0, 0.1, 10.0) applicata in software
-     (F_PROJ = 1/tan(30deg)) su un viewport QUADRATO, come l'originale
-     (0.7197*W x 0.9596*H a 4:3 = quadrato): un viewport non quadrato con
-     l'aspect 1.0 della proiezione stirava il pozzo;
-   * matrice di vista gluLookAt(0,0,0 -> 0,0,10, up 0,1,0);
-   * illuminazione GL: ambient = materiale.ambient, diffuse =
-     materiale.diffuse * max(0,N.L), luce in coordinate occhio (-15,10,10);
-   * primitive non illuminate (griglia, bordi dei cubi, pezzo) nel colore
-     AMBIENTE del materiale, come SetMaterial() con GL_LIGHTING spento;
-   * painter-style nell'ordine di orderMatrix durante il gioco (come
-     l'originale, che disegnava senza z-buffer); nell'orbita di GAME OVER
-     l'originale accendeva lo z-buffer: qui le facce sono ordinate per
-     profondita' (l'ordine di orderMatrix vale solo per la camera fissa);
-   * clipping sul piano vicino (NEARZ) e sul rettangolo del pozzo.
+   * gluPerspective(60.0, 1.0, 0.1, 10.0) projection applied in software
+     (F_PROJ = 1/tan(30deg)) on a SQUARE viewport, like the original
+     (0.7197*W x 0.9596*H at 4:3 = square): a non-square viewport with
+     the projection's 1.0 aspect stretched the pit;
+   * gluLookAt(0,0,0 -> 0,0,10, up 0,1,0) view matrix;
+   * GL lighting: ambient = material.ambient, diffuse =
+     material.diffuse * max(0,N.L), light in eye coordinates (-15,10,10);
+   * unlit primitives (grid, cube edges, piece) in the material's
+     AMBIENT color, like SetMaterial() with GL_LIGHTING off;
+   * painter-style in orderMatrix order during the game (like
+     the original, which drew without a z-buffer); in the GAME OVER orbit
+     the original turned the z-buffer on: here the faces are sorted by
+     depth (the orderMatrix order only holds for the fixed camera);
+   * clipping against the near plane (NEARZ) and the pit rectangle.
 
-  Stile MS-DOS: fondo nero, reticolo verde a 1 pixel, pezzo in caduta a
-  solo filo bianco, strati colorati per profondita', colonna dei livelli a
-  sinistra e colonna delle informazioni a destra, font bitmap 8x8.
+  MS-DOS style: black background, 1-pixel green grid, falling piece as a
+  white wireframe only, layers colored by depth, level column on the
+  left and info column on the right, 8x8 bitmap font.
 
-  Adattamenti richiesti dall'hardware 3DS:
+  Adaptations required by the 3DS hardware:
 
-   * C2D_DrawTriangle/Line/RectSolid al posto delle display list OpenGL;
-   * stereoscopia parallela: entrambi gli occhi condividono la vista, la
-     disparita' e' uno shift orizzontale proporzionale a (gConvZ/d - 1),
-     zero a meta' pozzo, con cap in pixel. Niente parallasse verticale.
+   * C2D_DrawTriangle/Line/RectSolid instead of OpenGL display lists;
+   * parallel stereoscopy: both eyes share the view, the
+     disparity is a horizontal shift proportional to (gConvZ/d - 1),
+     zero at mid-pit, capped in pixels. No vertical parallax.
 
   Program:     BlockOut / BlockOut 3DS
   Author:      Jean-Luc PONS
@@ -53,51 +53,51 @@
 #include "Pit.h"
 #include "PolyCube.h"
 
-/* font della console di libctru (8x8, 256 caratteri CP437, 1 bit/pixel) */
+/* libctru console font (8x8, 256 CP437 characters, 1 bit/pixel) */
 extern "C" const u8 default_font_bin[];
 
 /* ------------------------------------------------------------------ */
-/* Costanti del pipeline originale                                      */
+/* Constants of the original pipeline                                    */
 /* ------------------------------------------------------------------ */
 
-#define F_PROJ    1.7320508075688772f   /* 1 / tan(60/2 gradi), aspect 1.0 */
+#define F_PROJ    1.7320508075688772f   /* 1 / tan(60/2 degrees), aspect 1.0 */
 #define LIGHT_EX -15.0f
 #define LIGHT_EY  10.0f
 #define LIGHT_EZ  10.0f
 
-/* Oggetti C2D per FRAME (il vertex buffer di citro2d si svuota solo a fine
-   frame): con due occhi, lo schermo basso e un pozzo pieno si superano
-   largamente i 4096 di default e le primitive in eccesso sparivano. */
+/* C2D objects per FRAME (the citro2d vertex buffer is only emptied at the end of the
+   frame): with two eyes, the bottom screen and a full pit the default 4096 is
+   far exceeded and the excess primitives used to vanish. */
 #define C2D_OBJECTS 24000
 
-#define STEREO_MAXD 14.0f    /* cap alla disparita' totale (pixel, L-R) */
+#define STEREO_MAXD 14.0f    /* cap on the total disparity (pixels, L-R) */
 
-/* Layout dello schermo superiore (400x240) */
+/* Top screen layout (400x240) */
 #define PIT_X   44.0f
 #define PIT_Y    4.0f
 #define PIT_S  232.0f
-#define COL_X  284.0f        /* colonna informazioni: 284..396 */
+#define COL_X  284.0f        /* info column: 284..396 */
 #define COL_W  112.0f
 
 /* ------------------------------------------------------------------ */
-/* Stato globale del renderer                                          */
+/* Global renderer state                                               */
 /* ------------------------------------------------------------------ */
 
 static C3D_RenderTarget *gLeft;
 static C3D_RenderTarget *gRight;
 static C3D_RenderTarget *gBottom;
 static int               gScreen;            /* 0 = top, 1 = bottom */
-static float             gStereoPx = 10.0f;   /* disparita' di riferimento */
-static float             gEffPx = 10.0f;     /* effettiva per il frame */
-static int               gEye;               /* 0 = sx, 1 = dx */
-static float             gConvZ = 2.0f;      /* profondita' a disparita' zero */
+static float             gStereoPx = 10.0f;   /* reference disparity */
+static float             gEffPx = 10.0f;     /* effective for the frame */
+static int               gEye;               /* 0 = left, 1 = right */
+static float             gConvZ = 2.0f;      /* depth at zero disparity */
 
-static float gPitX, gPitY, gPitW, gPitH;     /* viewport pozzo, top-left */
-static float gFlash = 0.0f;                  /* lampo del reticolo 1..0 */
+static float gPitX, gPitY, gPitW, gPitH;     /* pit viewport, top-left */
+static float gFlash = 0.0f;                  /* grid flash 1..0 */
 static int   gPieceFill = 0;
 
 /* ------------------------------------------------------------------ */
-/* Colori                                                               */
+/* Colors                                                               */
 /* ------------------------------------------------------------------ */
 
 uint32_t r_color(int r, int g, int b, int a) {
@@ -145,16 +145,16 @@ void r_quad_a(const float *p, uint32_t col) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Font bitmap                                                          */
+/* Bitmap font                                                          */
 /* ------------------------------------------------------------------ */
-/* I 256 glifi 8x8 vengono copiati una volta in una texture 128x128 RGBA8
-   (bianco + alpha) nel formato a tile 8x8 "morton" della PICA; il colore
-   arriva dal tint. Filtro nearest + coordinate intere = pixel netti. */
+/* The 256 8x8 glyphs are copied once into a 128x128 RGBA8 texture
+   (white + alpha) in the PICA's 8x8 "morton" tile format; the color
+   comes from the tint. Nearest filter + integer coordinates = crisp pixels. */
 
-/* Una texture per colore: il tint delle immagini di citro2d non viene
-   applicato (il testo restava bianco in ogni modalita'), quindi ogni colore
-   richiesto ha la sua copia del font, creata alla prima richiesta. La UI
-   usa solo la palette EGA: poche texture da 64 KB. */
+/* One texture per color: the citro2d image tint is not applied
+   (the text stayed white in every mode), so each requested color
+   has its own copy of the font, created on first request. The UI
+   only uses the EGA palette: a few 64 KB textures. */
 #define FONT_CACHE 24
 static C3D_Tex           gFontTex[FONT_CACHE];
 static u32               gFontCol[FONT_CACHE];
@@ -186,17 +186,17 @@ static void fontInit(void) {
   gFontOk = 1;
 }
 
-/* Texture del font nel colore col (packing C2D, alpha rispettato) */
+/* Font texture in the color col (C2D packing, alpha respected) */
 static C3D_Tex *fontTex(u32 col) {
   for (int i = 0; i < gFontNb; i++) if (gFontCol[i] == col) return &gFontTex[i];
   int slot = gFontNb;
-  if (slot >= FONT_CACHE) {             /* cache piena: ricicla l'ultima */
+  if (slot >= FONT_CACHE) {             /* cache full: recycle the last one */
     slot = FONT_CACHE - 1;
     C3D_TexDelete(&gFontTex[slot]);
   } else gFontNb++;
   C3D_Tex *t = &gFontTex[slot];
   if (!C3D_TexInit(t, 128, 128, GPU_RGBA8)) { if (slot == gFontNb - 1) gFontNb--; return NULL; }
-  /* RGBA8 della PICA: u32 = R<<24 | G<<16 | B<<8 | A */
+  /* PICA RGBA8: u32 = R<<24 | G<<16 | B<<8 | A */
   u32 texel = ((col & 0xFF) << 24) | (((col >> 8) & 0xFF) << 16) |
               (((col >> 16) & 0xFF) << 8) | ((col >> 24) & 0xFF);
   u32 *px = (u32 *)t->data;
@@ -208,7 +208,7 @@ static C3D_Tex *fontTex(u32 col) {
       for (int x = 0; x < 8; x++) {
         if (!(bits & (0x80 >> x))) continue;
         u32 tx = (u32)(gx + x);
-        u32 ty = (u32)(gy + r);            /* riga 0 della memoria = v 1.0 (alto) */
+        u32 ty = (u32)(gy + r);            /* memory row 0 = v 1.0 (top) */
         px[((ty >> 3) * 16 + (tx >> 3)) * 64 + morton8(tx & 7, ty & 7)] = texel;
       }
     }
@@ -264,7 +264,7 @@ void r_char(float x, float y, int scale, uint32_t col, unsigned char c) {
 int r_screen_w(void) { return (gScreen == 0) ? 400 : 320; }
 int r_is_bottom(void) { return gScreen; }
 int r_eye(void) { return gEye; }
-/* disparita' effettiva: valore scelto (ZR / Setup) scalato dal cursore 3D */
+/* effective disparity: chosen value (ZR / Setup) scaled by the 3D slider */
 float r_stereo_px(void) { return gStereoPx * osGet3DSliderState(); }
 
 /* ------------------------------------------------------------------ */
@@ -325,14 +325,14 @@ void render_swap(int waitVsync) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Clipping 2D contro il viewport del pozzo                            */
+/* 2D clipping against the pit viewport                                */
 /* ------------------------------------------------------------------ */
 
 typedef struct { float x, y; uint32_t c; } V2C;
 
-/* Sutherland-Hodgman contro il rettangolo; t e' clampato in [0,1]: con un
-   lato quasi parallelo al bordo il roundoff lo farebbe esplodere e il
-   vertice finirebbe a 1e12 ("striscia gigante" sulla PICA). */
+/* Sutherland-Hodgman against the rectangle; t is clamped to [0,1]: with an
+   edge nearly parallel to the border roundoff would blow it up and the
+   vertex would end up at 1e12 ("giant strip" on the PICA). */
 static int clipPoly(const V2C *poly, int n, V2C *out,
                     float x0, float y0, float x1, float y1) {
   V2C bufA[40], bufB[40];
@@ -374,7 +374,7 @@ static int clipPoly(const V2C *poly, int n, V2C *out,
   return na;
 }
 
-/* Linea con clipping segmento-rettangolo (Liang-Barsky) */
+/* Line with segment-rectangle clipping (Liang-Barsky) */
 static void drawLineClip(float x0, float y0, uint32_t c0,
                          float x1, float y1, uint32_t c1, float thick) {
   float dx = x1 - x0, dy = y1 - y0;
@@ -400,7 +400,7 @@ static void drawLineClip(float x0, float y0, uint32_t c0,
 /* ------------------------------------------------------------------ */
 
 static float gMV[16];        /* view * model  (column-major) */
-static float gView[16];      /* vista corrente */
+static float gView[16];      /* current view */
 
 static void setModel(const float *m) {
   if (!m) { memcpy(gMV, gView, sizeof(gMV)); return; }
@@ -447,10 +447,10 @@ static int projEye(float ex, float ey, float ez, float *sx, float *sy) {
   float ny = F_PROJ * ey / d;
   float x = gPitX + (nx * 0.5f + 0.5f) * gPitW;
   float y = gPitY + (0.5f - ny * 0.5f) * gPitH;
-  /* disparita' positiva = dietro lo schermo = immagini non incrociate:
-     l'occhio sinistro vede il punto piu' a sinistra, il destro piu' a
-     destra (prima il segno era invertito e il pozzo si vedeva "al
-     rovescio": fondo davanti, bocca dietro) */
+  /* positive disparity = behind the screen = uncrossed images:
+     the left eye sees the point further left, the right eye further
+     right (the sign used to be inverted and the pit looked "inside
+     out": bottom in front, mouth behind) */
   float disp = gEffPx * (1.0f - gConvZ / d);
   if (disp > STEREO_MAXD) disp = STEREO_MAXD;
   else if (disp < -STEREO_MAXD) disp = -STEREO_MAXD;
@@ -473,7 +473,7 @@ static void eyePoint(float wx, float wy, float wz, float *ox, float *oy, float *
   *oz = gMV[2] * wx + gMV[6] * wy + gMV[10] * wz + gMV[14];
 }
 
-/* Poligono gia' in coordinate OCCHIO: near-clip, proiezione, clip 2D */
+/* Polygon already in EYE coordinates: near-clip, projection, 2D clip */
 static void drawPolyE(const EV *poly, int n) {
   EV clip[16];
   int m = clipNear(poly, n, clip);
@@ -505,7 +505,7 @@ static void drawPolyW(const float v[][3], int n, uint32_t col) {
   drawPolyE(poly, n);
 }
 
-/* Segmento in coordinate MONDO: near-clip, proiezione, clip 2D */
+/* Segment in WORLD coordinates: near-clip, projection, 2D clip */
 static void drawLineW(float ax, float ay, float az, float bx, float by, float bz,
                       uint32_t col, float thick) {
   float ax0, ay0, az0, bx0, by0, bz0;
@@ -556,7 +556,7 @@ static uint32_t ambColor(const GLMATERIAL *mat) {
   return r_color(ri < 0 ? 0 : ri, gi < 0 ? 0 : gi, bi < 0 ? 0 : bi, 255);
 }
 
-/* Back-face culling in coordinate occhio */
+/* Back-face culling in eye coordinates */
 static int faceVisible(float wx, float wy, float wz, float nx, float ny, float nz) {
   float ex, ey, ez; eyePoint(wx, wy, wz, &ex, &ey, &ez);
   float nex, ney, nez; eyeNormalM(nx, ny, nz, &nex, &ney, &nez);
@@ -564,7 +564,7 @@ static int faceVisible(float wx, float wy, float wz, float nx, float ny, float n
 }
 
 /* ------------------------------------------------------------------ */
-/* Geometria del cubo                                                   */
+/* Cube geometry                                                        */
 /* ------------------------------------------------------------------ */
 
 static const float cubeFaceV[6][4][3] = {
@@ -579,7 +579,7 @@ static const float cubeFaceN[6][3] = {
   {0,0,-1}, {1,0,0}, {0,0,1}, {-1,0,0}, {0,-1,0}, {0,1,0}
 };
 
-/* Spigoli del cubo (lcubeList[12]) */
+/* Cube edges (lcubeList[12]) */
 static const int cubeEdgeV[12][2][3] = {
   { {0,1,0},{1,1,0} }, { {1,1,0},{1,0,0} }, { {1,0,0},{0,0,0} }, { {0,0,0},{0,1,0} },
   { {0,1,0},{0,1,1} }, { {1,1,0},{1,1,1} }, { {1,0,0},{1,0,1} }, { {0,0,0},{0,0,1} },
@@ -587,10 +587,10 @@ static const int cubeEdgeV[12][2][3] = {
 };
 
 /* ------------------------------------------------------------------ */
-/* Pozzo                                                                */
+/* Pit                                                                */
 /* ------------------------------------------------------------------ */
 
-/* Cornice nera attorno all'apertura (sideList di Pit::CreateSide) */
+/* Black frame around the opening (sideList of Pit::CreateSide) */
 static void drawSideRing(Pit *pit) {
   uint32_t blk = r_color(0, 0, 0, 255);
   VERTEX org = pit->GetOrigin();
@@ -614,7 +614,7 @@ static void drawSideRing(Pit *pit) {
   }
 }
 
-/* 5 facce interne del pozzo (backList CLASSIC) */
+/* 5 inner faces of the pit (CLASSIC backList) */
 static void drawBack(Pit *pit, GLMATERIAL *backMat) {
   VERTEX org = pit->GetOrigin();
   float ox = org.x, oy = org.y, oz = org.z;
@@ -636,8 +636,8 @@ static void drawBack(Pit *pit, GLMATERIAL *backMat) {
   }
 }
 
-/* Reticolo verde a 1 pixel, come lo schermo DOS: pareti (linee
-   longitudinali), anelli a ogni livello e griglia del fondo. */
+/* 1-pixel green grid, like the DOS screen: walls (longitudinal
+   lines), rings at every level and the bottom grid. */
 static void drawGrid(Pit *pit, uint32_t gridCol) {
   VERTEX org = pit->GetOrigin();
   float ox = org.x, oy = org.y, oz = org.z;
@@ -666,8 +666,8 @@ static void drawGrid(Pit *pit, uint32_t gridCol) {
     drawLineW(ox, oy + i * cS, zb, -ox, oy + i * cS, zb, gridCol, 1.0f);
 }
 
-/* Spigoli di un cubo del pozzo: nero, oppure verde griglia se lo spigolo
-   giace su una parete (switch di Pit::RenderEdge, STYLE_CLASSIC) */
+/* Edges of a pit cube: black, or grid green if the edge
+   lies on a wall (Pit::RenderEdge switch, STYLE_CLASSIC) */
 static int edgeGreen(int e, int x, int y, int z, int width, int height, int depth) {
   switch (e) {
     case 0: return y == height - 1;
@@ -720,7 +720,7 @@ static void cubeFace(Pit *pit, int x, int y, int z, int f, float vs[4][3], float
   c[0] *= 0.25f; c[1] *= 0.25f; c[2] *= 0.25f;
 }
 
-/* Cubi del pozzo durante il gioco: ordine di orderMatrix (originale) */
+/* Pit cubes during the game: orderMatrix order (original) */
 static void drawPitCubes(Pit *pit, uint32_t gridCol) {
   const BLOCKITEM *om = pit->GetOrderMatrix();
   int mSize = pit->GetMatrixSize();
@@ -728,7 +728,7 @@ static void drawPitCubes(Pit *pit, uint32_t gridCol) {
     int x = om[i].x, y = om[i].y, z = om[i].z;
     if (!pit->GetValue(x, y, z)) continue;
     if (!pit->IsVisible(x, y, z)) continue;
-    /* GetMaterial restituisce un puntatore a uno static: copia per cella */
+    /* GetMaterial returns a pointer to a static: copy per cell */
     const GLMATERIAL m = *pit->GetMaterial(z);
     for (int f = 0; f < 6; f++) {
       float vs[4][3], c[3];
@@ -741,9 +741,9 @@ static void drawPitCubes(Pit *pit, uint32_t gridCol) {
   }
 }
 
-/* Orbita di GAME OVER: l'originale accendeva lo z-buffer. Qui le facce
-   visibili di tutti i cubi vengono raccolte e disegnate dalla piu' lontana
-   alla piu' vicina, ciascuna col suo contorno. */
+/* GAME OVER orbit: the original turned the z-buffer on. Here the visible
+   faces of all the cubes are collected and drawn from the farthest
+   to the nearest, each with its own outline. */
 typedef struct { float d; short x, y, z; unsigned char f; } SortFace;
 static SortFace gFaces[7 * 7 * 18 * 3];
 
@@ -764,7 +764,7 @@ static void drawPitCubesSorted(Pit *pit, uint32_t gridCol) {
           static const int nb[6][3] = { {0,0,-1}, {1,0,0}, {0,0,1}, {-1,0,0}, {0,-1,0}, {0,1,0} };
           int ax = x + nb[f][0], ay = y + nb[f][1], az = z + nb[f][2];
           if (ax >= 0 && ax < width && ay >= 0 && ay < height && az >= 0 && az < depth &&
-              pit->GetValue(ax, ay, az)) continue;          /* faccia interna */
+              pit->GetValue(ax, ay, az)) continue;          /* inner face */
           float vs[4][3], c[3];
           cubeFace(pit, x, y, z, f, vs, c);
           const float *n = cubeFaceN[f];
@@ -801,12 +801,12 @@ static void drawPitCubesSorted(Pit *pit, uint32_t gridCol) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Pezzo corrente                                                       */
+/* Current piece                                                       */
 /* ------------------------------------------------------------------ */
 
-/* PolyCube::Render(): il pezzo in caduta e' SOLO il filo (lineList, non
-   illuminato, bianco o rosso quando la rotazione e' bloccata), come nel
-   BlockOut DOS. Il riempimento semitrasparente e' opzionale (Setup). */
+/* PolyCube::Render(): the falling piece is ONLY the wireframe (lineList, unlit,
+   white or red when rotation is blocked), like in
+   DOS BlockOut. The semi-transparent fill is optional (Setup). */
 static void drawPieceCubes(PolyCube *pc, int redMode, int bigEdge) {
   int nb = pc->GetNbCube();
   BLOCKITEM *cubes = pc->GetCubes();
@@ -841,7 +841,7 @@ static void drawPieceCubes(PolyCube *pc, int redMode, int bigEdge) {
   uint32_t lcol = redMode ? r_color(255, 0, 0, 255) : r_color(255, 255, 255, 255);
   int nE = pc->GetNbEdge();
   EDGE *ed = pc->GetEdges();
-  float off = (bigEdge > 0) ? 0.5f : 0.0f;   /* bigEdgeList: centri dei cubi */
+  float off = (bigEdge > 0) ? 0.5f : 0.0f;   /* bigEdgeList: cube centers */
   float th = (bigEdge > 0) ? 2.0f : 1.0f;
   for (int i = 0; i < nE; i++) {
     drawLineW((ed[i].p1.x + off) * cS + org.x, (ed[i].p1.y + off) * cS + org.y,
@@ -851,8 +851,8 @@ static void drawPieceCubes(PolyCube *pc, int redMode, int bigEdge) {
   }
 }
 
-/* Facce del pezzo con ghostMaterial (transparent face > 0, e suggerimento
-   dell'IA in pratica): prima le posteriori, poi le anteriori. */
+/* Piece faces with ghostMaterial (transparent face > 0, and AI hint in
+   practice): back faces first, then front ones. */
 static void drawPieceGhost(PolyCube *pc, uint32_t colFront, uint32_t colBack) {
   int nb = pc->GetNbCube();
   BLOCKITEM *cubes = pc->GetCubes();
@@ -890,7 +890,7 @@ static void drawPieceGhost(PolyCube *pc, uint32_t colFront, uint32_t colBack) {
 /* Spark                                                                */
 /* ------------------------------------------------------------------ */
 
-static const float sparkTime = 0.5f;   /* identico alla costante di Game.cpp */
+static const float sparkTime = 0.5f;   /* identical to the constant in Game.cpp */
 
 void drawSpark(Game *g) {
   float sTime = g->curTime - g->startSpark;
@@ -899,8 +899,8 @@ void drawSpark(Game *g) {
   int alpha = (int)(255.0f * (1.0f - ratio));
   if (alpha <= 0) return;
 
-  /* StartSpark() salva il centro in coordinate bottom-left del viewport
-     sprite (schermo intero) */
+  /* StartSpark() saves the center in bottom-left coordinates of the
+     sprite viewport (full screen) */
   float cx = g->sparkX;
   float cy = 240.0f - g->sparkY;
   float r  = g->sparkW * 0.5f * (0.55f + 0.45f * ratio);
@@ -909,7 +909,7 @@ void drawSpark(Game *g) {
   if (r < 1.0f) return;
   if (r > 60.0f) r = 60.0f;
 
-  /* stella a 8 raggi (lo sprite dell'originale) */
+  /* 8-ray star (the original's sprite) */
   uint32_t c = r_color(255, 255, 255, alpha);
   uint32_t h = r_color(255, 255, 160, alpha / 2);
   for (int i = 0; i < 8; i++) {
@@ -922,11 +922,11 @@ void drawSpark(Game *g) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Colonna dei livelli (Pit::RenderLevel)                               */
+/* Level column (Pit::RenderLevel)                                      */
 /* ------------------------------------------------------------------ */
-/* Come nel DOS: una colonna stretta a sinistra del pozzo, uno scomparto
-   per ogni livello di profondita'; gli strati occupati si accendono del
-   colore del loro livello, dal fondo verso l'alto. */
+/* As in DOS: a narrow column to the left of the pit, one compartment
+   for each depth level; occupied layers light up in the
+   color of their level, from the bottom up. */
 
 void drawPitLevel(Game *g) {
   Pit *pit = &g->thePit;
@@ -939,14 +939,14 @@ void drawPitLevel(Game *g) {
   float y0 = yBot - h;
 
   uint32_t grid = ambColor(pit->GetGridMaterial());
-  /* telaio */
+  /* frame */
   r_rect(x0 - 3.0f, y0 - 3.0f, w + 6.0f, 1.0f, grid);
   r_rect(x0 - 3.0f, yBot + 2.0f, w + 6.0f, 1.0f, grid);
   r_rect(x0 - 3.0f, y0 - 3.0f, 1.0f, h + 6.0f, grid);
   r_rect(x0 + w + 2.0f, y0 - 3.0f, 1.0f, h + 6.0f, grid);
 
   for (int z = 0; z < depth; z++) {
-    /* z = depth-1 e' il fondo del pozzo: scomparto piu' in basso */
+    /* z = depth-1 is the bottom of the pit: lowest compartment */
     float yy = yBot - (float)(depth - z) * cell;
     if (!pit->IsLineEmpty(z)) {
       const GLMATERIAL m = *pit->GetMaterial(z);
@@ -961,7 +961,7 @@ void drawPitLevel(Game *g) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Colonna delle informazioni (Sprites::RenderInfo / RenderScore)       */
+/* Info column (Sprites::RenderInfo / RenderScore)                      */
 /* ------------------------------------------------------------------ */
 
 static void infoRow(float y, const char *label, const char *val, int vscale, uint32_t vc) {
@@ -992,14 +992,14 @@ void renderHud(Game *g) {
 
   infoRow(154.0f, "BLOCK SET", g->setupManager->GetBlockSetName(), 1, E_WHITE);
 
-  /* avanzamento verso il livello successivo */
+  /* progress toward the next level */
   r_print(COL_X + 4.0f, 182.0f, 1, UI_LABEL, "NEXT LEVEL", 0);
   int cpl = g->cubePerLevel > 0 ? g->cubePerLevel : 1;
   float frac = (g->level >= 10) ? 1.0f :
                (float)(g->score.nbCube - cpl * g->level) / (float)cpl;
   ui_bar(COL_X + 4.0f, 192.0f, COL_W - 8.0f, 8.0f, frac, E_LGREEN);
 
-  /* stato (RenderDemo / RenderPractice dell'originale), lampeggiante */
+  /* state (the original's RenderDemo / RenderPractice), blinking */
   const char *mode = NULL;
   uint32_t mc = E_LGREEN;
   if (g->demoFlag)                     { mode = "DEMO"; mc = E_LMAGENTA; }
@@ -1011,7 +1011,7 @@ void renderHud(Game *g) {
   }
 }
 
-/* PAUSE / GAME OVER nel centro del pozzo (Sprites::RenderGameMode) */
+/* PAUSE / GAME OVER in the center of the pit (Sprites::RenderGameMode) */
 void renderGameModeOverlay(Game *g) {
   float cx = PIT_X + PIT_S * 0.5f, cy = PIT_Y + PIT_S * 0.5f;
   if (g->gameMode == GAME_OVER) {
@@ -1024,7 +1024,7 @@ void renderGameModeOverlay(Game *g) {
   }
 }
 
-/* Pratica: "Press [H] to see suggested position" nei primi 3 secondi
+/* Practice: "Press [H] to see suggested position" in the first 3 seconds
    (Game::RenderPracticeHelp) */
 void renderPracticeHelp(Game *g) {
   if (!g->practiceFlag || g->demoFlag || g->gameMode != GAME_PLAYING) return;
@@ -1035,15 +1035,15 @@ void renderPracticeHelp(Game *g) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Pozzo (schermo superiore)                                            */
+/* Pit (top screen)                                                     */
 /* ------------------------------------------------------------------ */
 
 void renderPitView(Game *g, int eye) {
   Pit *pit = &g->thePit;
   const float *viewSrc = g->endAnimStarted ? g->pitMatrix : g->matView;
 
-  /* disparita' zero sulla bocca del pozzo (piano dello schermo, come
-     l'HUD): il pozzo sprofonda dietro il vetro */
+  /* zero disparity at the pit mouth (screen plane, like
+     the HUD): the pit sinks behind the glass */
   gConvZ = pit->GetOrigin().z;
   gEffPx = (g->gameMode == GAME_OVER) ? 0.0f : r_stereo_px();
   gEye = eye ? 1 : 0;
@@ -1056,7 +1056,7 @@ void renderPitView(Game *g, int eye) {
 
   GLMATERIAL *backMat = pit->GetBackMaterial();
   uint32_t gridCol = ambColor(pit->GetGridMaterial());
-  /* lampo del reticolo quando si completano strati (verde -> bianco) */
+  /* grid flash when layers are completed (green -> white) */
   if (gFlash > 0.0f) {
     float k = gFlash;
     int r = (int)((gridCol & 0xFF) + (255 - (int)(gridCol & 0xFF)) * k);
@@ -1065,7 +1065,7 @@ void renderPitView(Game *g, int eye) {
     gridCol = r_color(r, gg, b, 255);
   }
 
-  /* Pit::Render(STYLE_CLASSIC): sideList e backList solo senza z-buffer */
+  /* Pit::Render(STYLE_CLASSIC): sideList and backList only without z-buffer */
   if (!orbit) {
     drawSideRing(pit);
     drawBack(pit, backMat);
@@ -1089,7 +1089,7 @@ void renderPitView(Game *g, int eye) {
     }
     drawPieceCubes(pc, g->redMode != 0, g->lineWidth);
 
-    /* pratica: suggerimento dell'IA per 0.75 s */
+    /* practice: AI hint for 0.75 s */
     if (g->practiceFlag && g->startShowAI > 0.0f && (g->curTime - g->startShowAI) < 0.75f) {
       setModel(g->matAIPiece);
       drawPieceGhost(pc, r_color(80, 255, 80, 90), r_color(40, 140, 40, 60));
@@ -1108,7 +1108,7 @@ void renderPitView(Game *g, int eye) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Schermo basso durante la partita                                     */
+/* Bottom screen during the game                                       */
 /* ------------------------------------------------------------------ */
 
 void renderBottomUI(Game *g) {
@@ -1137,7 +1137,7 @@ void renderBottomUI(Game *g) {
 
   ui_box(4.0f, 4.0f, 312.0f, 232.0f, UI_FRAME, E_BLACK, " BLOCKOUT ", E_YELLOW);
 
-  /* partita: tempo + linee per numero di strati tolti insieme */
+  /* game: time + lines by number of layers removed together */
   int secs = (int)(g->curTime - g->startGameTime);
   if (secs < 0) secs = 0;
   snprintf(buf, sizeof(buf), "%02d:%02d", secs / 60, secs % 60);
@@ -1186,11 +1186,11 @@ void renderBottomUI(Game *g) {
 void render_game(Game *g) {
   if (!g->inited) return;
 
-  /* viewport del pozzo quadrato come l'originale; pitView.y e' in
-     convenzione bottom-left perche' Game::StartSpark() la usa cosi' */
+  /* square pit viewport like the original; pitView.y is in
+     bottom-left convention because Game::StartSpark() uses it that way */
   g->SetPitViewport((int)PIT_X, (int)(240.0f - (PIT_Y + PIT_S)), (int)PIT_S, (int)PIT_S);
 
-  /* strati completati dall'ultimo frame -> lampo di 0.35 s */
+  /* layers completed since the last frame -> 0.35 s flash */
   static long lastLayers = 0;
   static float flashStart = -10.0f;
   long layers = g->score.nbLine1 + 2L * g->score.nbLine2 + 3L * g->score.nbLine3 +

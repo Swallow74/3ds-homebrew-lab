@@ -9,10 +9,10 @@
   the Free Software Foundation; either version 2 of the License, or
   (at your option) any later version.
 
-  Port 3DS: copiato verbatim da BotMatrix.cpp di BlockOut II 2.5. Le matrici
-  sono quelle originali: una versione precedente del port le aveva invertite
-  e la IA (demo/pratica) calcolava posizioni sbagliate e non completava mai
-  uno strato.
+  3DS port: copied verbatim from BotMatrix.cpp of BlockOut II 2.5. The matrices
+  are the original ones: an earlier version of the port had swapped them
+  and the AI (demo/practice) computed wrong positions and never completed
+  a layer.
 
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of

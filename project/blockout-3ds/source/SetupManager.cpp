@@ -1,10 +1,10 @@
 /*
   File:        SetupManager.cpp
   Description: Setup management - logic ported from BlockOut II 2.5.
-               Le opzioni hardware non esistenti sul 3DS (schermo, frame
-               limit, HTTP) sono state eliminate; i file di configurazione e
-               i punteggi massimi sono salvati sulla SD in /3ds/blockout con
-               la stessa struttura dei file originali (versione 6).
+               Hardware options that do not exist on the 3DS (screen, frame
+               limit, HTTP) were removed; the configuration files and
+               high scores are saved on the SD card in /3ds/blockout with
+               the same structure as the original files (version 6).
   Program:     BlockOut / BlockOut 3DS
   Author:      Jean-Luc PONS
 
@@ -30,7 +30,7 @@ const char *BLOCKSET_NAME[] = {"FLAT", "BASIC", "EXTENDED"};
 
 SetupManager::SetupManager() {
 
-  // Default (identici all'originale)
+  // Default (identical to the original)
   pitWidth = 5;
   pitHeight = 5;
   pitDepth = 12;
@@ -42,9 +42,9 @@ SetupManager::SetupManager() {
   transparentFace = 0;
   style = STYLE_CLASSIC;
   lineWidth = LINEW_MIN;
-  soundType = SOUND_BLOCKOUT;     // 3DS: effetti in stile DOS di default
+  soundType = SOUND_BLOCKOUT;     // 3DS: DOS-style effects by default
   playMusic = 1;
-  pieceFill = 0;                 // pezzo a solo filo, come l'originale
+  pieceFill = 0;                 // wireframe-only piece, like the original
   stereoLevel = 2;
 
   keyRx1 = 'Q';
@@ -166,7 +166,7 @@ void SetupManager::SetSound(BOOL play) { playSound = play; }
 BOOL SetupManager::GetSound() { return playSound; }
 
 //-----------------------------------------------------------------------------
-// Control keys (codici storici QWERTY)
+// Control keys (historical QWERTY codes)
 
 BYTE SetupManager::GetKRx1() { return keyRx1; }
 BYTE SetupManager::GetKRy1() { return keyRy1; }
@@ -213,7 +213,7 @@ const char *SetupManager::GetBlockSetName() {
 }
 
 //-----------------------------------------------------------------------------
-// Return configuration id (975 -> 585 configurazioni)
+// Return configuration id (975 -> 585 configurations)
 
 int SetupManager::GetId() {
 
@@ -360,7 +360,7 @@ void SetupManager::CleanHighScore(int id) {
 }
 
 //-----------------------------------------------------------------------------
-// Record binario da 64 byte (come WriteScoreItem/ReadScoreItem originali)
+// 64-byte binary record (like the original WriteScoreItem/ReadScoreItem)
 
 void SetupManager::ReadScoreItem(FILE *f, SCOREREC *dest) {
 
@@ -441,8 +441,8 @@ void SetupManager::SaveHighScore() {
 }
 
 //-----------------------------------------------------------------------------
-// File di configurazione (stesso ordine di campi di WriteSetup, versione 6,
-// senza i campi hardware dell'originale)
+// Configuration file (same field order as WriteSetup, version 6,
+// without the original's hardware fields)
 
 void SetupManager::LoadSetup() {
 
@@ -473,7 +473,7 @@ void SetupManager::LoadSetup() {
       nbRead = (size_t)fread(&keyRy2, sizeof(BYTE), 1, file);
       nbRead = (size_t)fread(&keyRz2, sizeof(BYTE), 1, file);
 
-      // Campi del port 3DS (assenti nei file vecchi: restano i default)
+      // 3DS port fields (absent in old files: the defaults remain)
       int32 ext[3];
       if (fread(ext, sizeof(int32), 3, file) == 3) {
         playMusic = ext[0] ? 1 : 0;

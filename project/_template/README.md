@@ -1,33 +1,33 @@
-# Template 3DS — NON MODIFICARE DIRETTAMENTE
+# 3DS template — DO NOT EDIT DIRECTLY
 
-Questo è il template. Per un nuovo progetto:
+This is the template. For a new project:
 
 ```bash
-./tools/new-app.sh <nome-app> "Titolo" "Autore"
-cd project/<nome-app>
+./tools/new-app.sh <app-name> "Title" "Author"
+cd project/<app-name>
 source ../../tools/env.sh
-make        # -> output/<nome>.3dsx + .smdh + .elf
-make cia    # -> output/<nome>.cia (richiede makerom+bannertool)
-make 3ds    # -> output/<nome>.3ds (idem)
+make        # -> output/<name>.3dsx + .smdh + .elf
+make cia    # -> output/<name>.cia (needs makerom+bannertool)
+make 3ds    # -> output/<name>.3ds (same)
 make clean
 ```
 
-Struttura:
+Layout:
 
-- `source/` codice C/C++/asm (entry: `main.c`)
-- `include/` header privati
-- `data/` file binari inclusi via bin2o
-- `gfx/` file `.t3s` convertiti con tex3ds
-- `romfs/` contenuto RomFS del `.3dsx`
+- `source/` C/C++/asm code (entry: `main.c`)
+- `include/` private headers
+- `data/` binary files embedded via bin2o
+- `gfx/` `.t3s` files converted with tex3ds
+- `romfs/` RomFS contents of the `.3dsx`
 - `resources/`:
-  - `AppInfo` metadati (titolo/autore/UniqueID/versione)
-  - `template.rsf` spec makerom per `.cia/.3ds`
-  - `icon.png` 48x48 per smdh/icon.icn
-  - `banner.png` + `audio.wav` OPZIONALI per banner CIA personalizzato
-    (senza: bannertool usa default; vedi notes/CIA-vs-3DSX.md)
+  - `AppInfo` metadata (title/author/UniqueID/version)
+  - `template.rsf` makerom spec for `.cia/.3ds`
+  - `icon.png` 48x48 for smdh/icon.icn
+  - `banner.png` + `audio.wav` OPTIONAL, for a custom CIA banner
+    (without them bannertool uses the default; see notes/CIA-vs-3DSX.md)
 
-Regole UniqueID (`resources/AppInfo`):
+UniqueID rules (`resources/AppInfo`):
 
-- Deve essere UNICO per ogni app installata come `.cia`.
-- Range homebrew comune: `0x1B000`–`0x1BFFF`. `new-app.sh` ne genera uno a caso.
-- Mai riusare lo stesso ID per due app diverse.
+- Must be UNIQUE for every app installed as `.cia`.
+- Common homebrew range: `0x1B000`–`0x1BFFF`. `new-app.sh` generates one at random.
+- Never reuse the same ID for two different apps.

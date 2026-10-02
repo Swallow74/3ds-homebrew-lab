@@ -81,8 +81,8 @@ void PolyCube::SetGeometry(float cs, VERTEX org, int ghost) {
 }
 
 //-----------------------------------------------------------------------------
-// Calcolo degli spigoli del polycube: identico a PolyCube::Create() di
-// BlockOut II 2.5 (tabela edgeOrg[12], IsEdgeVisible, dedup EdgeExist).
+// Computation of the polycube edges: identical to PolyCube::Create() of
+// BlockOut II 2.5 (edgeOrg[12] table, IsEdgeVisible, EdgeExist dedup).
 //-----------------------------------------------------------------------------
 
 #define DIR_OX 1

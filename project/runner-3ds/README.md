@@ -1,7 +1,7 @@
 # Neon Rush 3DS (.3dsx)
 
-Runner "into the screen" per Nintendo 3DS: 3 corsie, barriere basse da
-saltare, muri alti da schivare, velocita' crescente, 3D stereoscopico.
+"Into the screen" runner for the Nintendo 3DS: 3 lanes, low barriers to
+jump over, tall walls to dodge, increasing speed, stereoscopic 3D.
 
 ```bash
 source ../../tools/env.sh
@@ -9,31 +9,31 @@ make        # output/runner-3ds.3dsx + .smdh
 make clean
 ```
 
-Su 3DS: copia `output/*` in `sd:/3ds/runner-3ds/`, avvia da hbmenu
-(il best score si salva in `sd:/3ds/runner-3ds/best.txt`).
-Su Mac: apri la `.3dsx` con Azahar.
+On a 3DS: copy `output/*` to `sd:/3ds/runner-3ds/`, start it from hbmenu
+(the best score is saved in `sd:/3ds/runner-3ds/best.txt`).
+On a Mac: open the `.3dsx` with Azahar.
 
-- **Grafica**: poligoni con texture procedurali mappate sulle facce
-  (atlas 256x256 con mipmap generato a runtime, `texgen.c`), luce
-  direzionale, occlusione verso terra e nebbia per vertice, glow additivi.
-  I vertici vanno direttamente nel batch di citro2d (`rx.c`, scritto per
-  citro2d 1.7.0; con layout diverso ripiega su triangoli a tinta unita).
-- **Scenario synthwave**: sole a strisce, montagne wireframe, palazzi con
-  finestre, insegne al neon e antenne, lampioni con pozze di luce.
-- **Monete**: file nelle corsie libere e archi sopra le barriere; catena
-  sonora a tono crescente. Totale monete salvato su SD.
-- **Power-up**: MAGNETE (8 s), SCUDO (assorbe un urto), 2X (10 s).
-- **Punteggio** (x difficolta' x moltiplicatore): 1/m, moneta 10, salto
-  pulito 25, schivata 2, power-up 50. Moltiplicatore +1 ogni 20 monete
-  (max x5), raddoppiato dal 2X.
-- **UI**: menu a lista, conto alla rovescia, pausa (START o tocco),
-  schermata risultati (A riprova, B titolo), schermo basso con statistiche.
-- **3D stereoscopico** comodo (tutto dietro il vetro, HUD sul vetro).
-- **Audio DSP** sintetizzato: musica a loop + effetti. SELECT = musica.
+- **Graphics**: polygons with procedural textures mapped onto the faces
+  (256x256 atlas with mipmaps generated at runtime, `texgen.c`), directional
+  light, ground occlusion and per-vertex fog, additive glows.
+  Vertices go straight into the citro2d batch (`rx.c`, written for
+  citro2d 1.7.0; with a different layout it falls back to solid-color triangles).
+- **Synthwave scenery**: striped sun, wireframe mountains, buildings with
+  windows, neon signs and antennas, street lamps with pools of light.
+- **Coins**: lines in the free lanes and arcs above the barriers; a rising-pitch
+  sound chain. Total coins saved to the SD card.
+- **Power-ups**: MAGNET (8 s), SHIELD (absorbs one hit), 2X (10 s).
+- **Score** (x difficulty x multiplier): 1/m, coin 10, clean jump
+  25, dodge 2, power-up 50. Multiplier +1 every 20 coins
+  (max x5), doubled by 2X.
+- **UI**: list menu, countdown, pause (START or touch),
+  results screen (A retry, B title), bottom screen with statistics.
+- **Comfortable stereoscopic 3D** (everything behind the glass, HUD on the glass).
+- **Synthesized DSP audio**: looping music + effects. SELECT = music.
 
-Comandi: Sx/Dx corsia, A/B/Su salto, Giu' in aria = picchiata,
-START pausa, SELECT musica.
+Controls: Left/Right lane, A/B/Up jump, Down in the air = dive,
+START pause, SELECT music.
 
-## Licenza
+## License
 
-GNU GPL v2 o successiva (vedi `COPYING`). Copyright (C) 2026 Alessandro Del Rosso.
+GNU GPL v2 or later (see `COPYING`). Copyright (C) 2026 Alessandro Del Rosso.

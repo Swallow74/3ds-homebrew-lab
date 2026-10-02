@@ -15,26 +15,26 @@
 #include <3ds.h>
 #include "music.h"   /* MUS_TITLE, MUS_RUN, MUS_OVER */
 
-/* Audio sintetizzato via NDSP (DSP::DSP service).
- * Buffer PCM in linear memory come richiesto dal DSP.
- * Pattern ispirato a devkitPro/3ds-examples/audio/streaming. */
+/* NDSP-synthesized audio (DSP::DSP service).
+ * PCM buffers in linear memory as required by the DSP.
+ * Pattern inspired by devkitPro/3ds-examples/audio/streaming. */
 
 void audio_init(void);
 void audio_exit(void);
 bool audio_ok(void);
 
 void audio_set_music(bool on);
-bool audio_music_on(void);   /* preferenza dell'utente */
-void audio_music(int song);  /* MUS_*: cambia brano con dissolvenza */
-void audio_duck(bool on);    /* musica a volume ridotto (pausa) */
+bool audio_music_on(void);   /* user preference */
+void audio_music(int song);  /* MUS_*: changes song with a fade */
+void audio_duck(bool on);    /* music at reduced volume (pause) */
 
 void audio_start(void);
 void audio_move(void);
 void audio_jump(void);
 void audio_bonus(void);
 void audio_crash(void);
-void audio_coin(int step);   /* step = posizione nella catena: alza il tono */
+void audio_coin(int step);   /* step = position in the chain: raises the pitch */
 void audio_power(void);
 void audio_shield(void);
 void audio_select(void);
-void audio_go(bool last);    /* bip del conto alla rovescia, last = "GO" */
+void audio_go(bool last);    /* countdown beep, last = "GO" */

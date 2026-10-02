@@ -36,12 +36,12 @@ public:
   // Return the Origin (3D space)
   VERTEX GetOrigin();
 
-  // Spaziali (usati dal renderer)
+  // Spatial (used by the renderer)
   float GetFWidth();
   float GetFHeight();
   float GetFDepth();
 
-  // Materiali (identici all'originale): struttura GLMATERIAL completa
+  // Materials (identical to the original): full GLMATERIAL structure
   GLMATERIAL *GetMaterial(int idx);
   GLMATERIAL *GetGridMaterial();
   GLMATERIAL *GetBackMaterial();
@@ -70,7 +70,7 @@ public:
   // Return true if the pit is empty
   BOOL IsEmpty();
 
-  // Accessori usati dal renderer / dall'AI
+  // Accessors used by the renderer / the AI
   BOOL IsVisible(int x, int y, int z);
   BOOL IsVisible2(int x, int y, int z);
   BOOL IsLineFull(int z);
@@ -83,7 +83,7 @@ private:
   void InitOrderMatrix();
   void RemoveLine(int idx);
 
-  // Materiali (gli stessi dell'originale Pit::Create)
+  // Materials (the same as the original Pit::Create)
   GLMATERIAL gridMaterial;
   GLMATERIAL blackMaterial;
   GLMATERIAL darkMaterial;

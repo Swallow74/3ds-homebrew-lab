@@ -1,9 +1,9 @@
 /*
   File:        Types.h
-  Description: Shim dell'originale BlockOut II: nel port 3DS i tipi/le
-               costanti stanno in bo_compat.h (nomi e valori identici).
-               Qui sopra sono riportate le strutture che Types.h definisce
-               dopo le costanti (SCOREREC, come nell'originale).
+  Description: Shim of the original BlockOut II: in the 3DS port the types/
+               constants live in bo_compat.h (identical names and values).
+               Here are the structures that Types.h defines
+               after the constants (SCOREREC, as in the original).
 */
 
 #ifndef TYPESH
@@ -11,8 +11,8 @@
 
 #include "bo_compat.h"
 
-/* Record dei punteggi (Types.h di BlockOut II, senza il campo *next che
-   l'originale aggiungeva in SetupManager.h) */
+/* Score record (Types.h of BlockOut II, without the *next field that
+   the original added in SetupManager.h) */
 typedef struct SCORERECLINK {
 
   int32  setupId;

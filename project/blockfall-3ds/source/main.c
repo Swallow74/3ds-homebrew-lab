@@ -12,16 +12,16 @@
  * GNU General Public License for more details.
  */
 /*
- * Blockfall 3DS — homebrew .3dsx con grafica citro2d (GPU 2D)
+ * Blockfall 3DS — .3dsx homebrew with citro2d graphics (2D GPU)
  *
- * Top screen    : pozzo 10x20 a blocchi colorati + pannello punteggio + next
- * Bottom screen : aiuto comandi
+ * Top screen    : 10x20 pit of colored blocks + score panel + next
+ * Bottom screen : controls help
  *
- * Comandi:
- *   D-Pad Sx/Dx : muovi   | D-Pad Giu : caduta veloce
- *   A / Su      : ruota   | B : caduta istantanea (hard drop)
- *   START       : esci a hbmenu
- *   A su schermata GAME OVER: ricomincia
+ * Controls:
+ *   D-Pad Left/Right : move   | D-Pad Down : soft drop
+ *   A / Up           : rotate | B : instant drop (hard drop)
+ *   START            : exit to hbmenu
+ *   A on the GAME OVER screen: restart
  */
 #include <3ds.h>
 #include <citro2d.h>
@@ -38,10 +38,10 @@
 #define WELL_Y 18
 #define PANEL_X 150
 
-/* la board memorizza 0 = vuoto, altrimenti kind+1 (per il colore) */
+/* the board stores 0 = empty, otherwise kind+1 (for the color) */
 static int board[H][W];
 
-/* 7 tetramini in griglie 4x4 di spawn */
+/* 7 tetrominoes in 4x4 spawn grids */
 static const u8 SHAPES[7][4][4] = {
 	/* I */
 	{{0,0,0,0},
@@ -82,7 +82,7 @@ static const u8 SHAPES[7][4][4] = {
 
 static u8 cur[4][4];
 static int curKind = 0;
-static int px, py;          /* top-left della 4x4 rispetto alla board */
+static int px, py;          /* top-left of the 4x4 relative to the board */
 static int score, lines, level;
 static bool gameover;
 
@@ -131,7 +131,7 @@ static int next_piece(void)
 	return bag[bagPos++];
 }
 
-/* sbircia il prossimo pezzo senza consumarlo (per il preview) */
+/* peek at the next piece without consuming it (for the preview) */
 static int peek_next(void)
 {
 	if (bagPos >= 7) shuffle_bag();
@@ -165,7 +165,7 @@ static bool try_rotate(void)
 	u8 t[4][4];
 	memcpy(t, cur, sizeof(t));
 	rotate_cw(t);
-	/* wall kick minimale: stessa pos, poi +-1, poi riga sopra */
+	/* minimal wall kick: same pos, then +-1, then the row above */
 	static const int kicks[][2] = {{0,0},{-1,0},{1,0},{0,-1},{-2,0},{2,0}};
 	for (unsigned i = 0; i < sizeof(kicks)/sizeof(kicks[0]); i++) {
 		if (!collides(t, px + kicks[i][0], py + kicks[i][1])) {
@@ -198,7 +198,7 @@ static int clear_lines(void)
 			for (int yy = y; yy > 0; yy--)
 				memcpy(board[yy], board[yy - 1], sizeof(board[yy]));
 			memset(board[0], 0, sizeof(board[0]));
-			y++; /* ricontrolla la riga caduta qui */
+			y++; /* recheck the row that fell here */
 		}
 	}
 	return n;
@@ -226,11 +226,11 @@ static void reset_game(void)
 	spawn(next_piece());
 }
 
-/* disegna un blocco con bordo scuro + highlight sopra */
+/* draw a block with a dark border + highlight on top */
 static void draw_block(float x, float y, float s, u32 color)
 {
 	C2D_DrawRectSolid(x, y, 0.5f, s, s, color);
-	/* highlight: striscia chiara in alto + bordo scuro in basso */
+	/* highlight: light strip at the top + dark border at the bottom */
 	C2D_DrawRectSolid(x + 1, y + 1, 0.5f, s - 2, 2,
 		C2D_Color32(0xFF, 0xFF, 0xFF, 0x70));
 	C2D_DrawRectSolid(x + 1, y + s - 2, 0.5f, s - 2, 1,
@@ -271,7 +271,7 @@ int main(int argc, char **argv)
 	reset_game();
 
 	int fallTick = 0;
-	int moveTick = 0;   /* auto-repeat laterale */
+	int moveTick = 0;   /* sideways auto-repeat */
 
 	while (aptMainLoop()) {
 		hidScanInput();
@@ -283,7 +283,7 @@ int main(int argc, char **argv)
 		if (gameover) {
 			if (kDown & KEY_A) reset_game();
 		} else {
-			/* rotazione */
+			/* rotation */
 			if (kDown & (KEY_A | KEY_UP)) try_rotate();
 
 			/* hard drop */
@@ -300,7 +300,7 @@ int main(int argc, char **argv)
 				fallTick = 0;
 			}
 
-			/* movimento laterale con auto-repeat */
+			/* sideways movement with auto-repeat */
 			int dir = 0;
 			if (kHeld & KEY_LEFT) dir = -1;
 			else if (kHeld & KEY_RIGHT) dir = 1;
@@ -316,7 +316,7 @@ int main(int argc, char **argv)
 				moveTick = 0;
 			}
 
-			/* gravita: intervallo in frame (60fps), soft drop accelera */
+			/* gravity: interval in frames (60fps), soft drop speeds it up */
 			int interval = 42 - level * 3;
 			if (interval < 4) interval = 4;
 			if (kHeld & KEY_DOWN) interval = 2;
@@ -342,11 +342,11 @@ int main(int argc, char **argv)
 		C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
 		C2D_TextBufClear(txtBuf);
 
-		/* ----- top screen: pozzo + pannello ----- */
+		/* ----- top screen: pit + panel ----- */
 		C2D_TargetClear(top, colBg);
 		C2D_SceneBegin(top);
 
-		/* sfondo pozzo + griglia */
+		/* pit background + grid */
 		C2D_DrawRectSolid(WELL_X - 2, WELL_Y - 2, 0.5f,
 			W * CELL + 4, H * CELL + 4, colWell);
 		for (int y = 0; y <= H; y++)
@@ -356,7 +356,7 @@ int main(int argc, char **argv)
 			C2D_DrawRectSolid(WELL_X + x * CELL, WELL_Y, 0.5f,
 				1, H * CELL, colGrid);
 
-		/* blocchi fissati */
+		/* locked blocks */
 		for (int y = 0; y < H; y++)
 			for (int x = 0; x < W; x++)
 				if (board[y][x])
@@ -364,7 +364,7 @@ int main(int argc, char **argv)
 						CELL, piece_color(board[y][x] - 1));
 
 		if (!gameover) {
-			/* ghost: dove atterrerebbe il pezzo */
+			/* ghost: where the piece would land */
 			int gy = py;
 			while (!collides(cur, px, gy + 1)) gy++;
 			u32 ghost = piece_color_ghost(curKind);
@@ -378,7 +378,7 @@ int main(int argc, char **argv)
 						WELL_Y + by * CELL + 1, 0.5f,
 						CELL - 2, CELL - 2, ghost);
 				}
-			/* pezzo corrente */
+			/* current piece */
 			for (int y = 0; y < 4; y++)
 				for (int x = 0; x < 4; x++) {
 					if (!cur[y][x]) continue;
@@ -389,7 +389,7 @@ int main(int argc, char **argv)
 				}
 		}
 
-		/* pannello laterale */
+		/* side panel */
 		char line[64];
 		draw_text(txtBuf, font, "BLOCKFALL 3DS", PANEL_X, 14, 0.7f, colAccent);
 		snprintf(line, sizeof(line), "SCORE %d", score);
@@ -415,7 +415,7 @@ int main(int argc, char **argv)
 				WELL_Y + 88, 0.5f, colAccent);
 		}
 
-		/* ----- bottom screen: aiuto ----- */
+		/* ----- bottom screen: help ----- */
 		C2D_TargetClear(bot, colBg);
 		C2D_SceneBegin(bot);
 		draw_text(txtBuf, font, "BLOCKFALL 3DS - controls", 16, 14, 0.6f, colAccent);
@@ -429,7 +429,7 @@ int main(int argc, char **argv)
 		draw_text(txtBuf, font, line, 16, 160, 0.5f, colDim);
 
 		C3D_FrameEnd(0);
-		gspWaitForVBlank(); /* C3D_FrameEnd non aspetta: senza questo si va' oltre i 60fps */
+		gspWaitForVBlank(); /* C3D_FrameEnd does not wait: without this it goes past 60fps */
 	}
 
 	C2D_TextBufDelete(txtBuf);

@@ -12,8 +12,8 @@
  * GNU General Public License for more details.
  */
 /*
- * Hello 3DS — template base libctru
- * Schermo superiore: console testuale. Premi START per uscire.
+ * Hello 3DS — base libctru template
+ * Top screen: text console. Press START to exit.
  */
 #include <3ds.h>
 #include <stdio.h>

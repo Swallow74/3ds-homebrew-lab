@@ -1,9 +1,9 @@
 /*
   File:        Pit.cpp
   Description: Pit management - logic ported verbatim from BlockOut II.
-               La parte OpenGL (display list / glDrawPixels) e' stata sostituita
-               dagli accessors geometrici + materiali, usati dal renderer 3DS
-               che disegna la stessa identica geometria in software.
+               The OpenGL part (display lists / glDrawPixels) was replaced
+               by geometric + material accessors, used by the 3DS renderer
+               which draws the exact same geometry in software.
   Program:     BlockOut / BlockOut 3DS
   Author:      Jean-Luc PONS
 
@@ -34,7 +34,7 @@ Pit::Pit() {
 }
 
 //-----------------------------------------------------------------------------
-// SetDimension + geometria (cubeSide/origin: identico a Pit::Create)
+// SetDimension + geometry (cubeSide/origin: identical to Pit::Create)
 //-----------------------------------------------------------------------------
 
 void Pit::SetDimension(int gWidth, int gHeight, int gDepth) {
@@ -59,7 +59,7 @@ void Pit::SetDimension(int gWidth, int gHeight, int gDepth) {
     return;
   }
 
-  // Geometria 3D (Pit::Create nell'originale)
+  // 3D geometry (Pit::Create in the original)
   float startX;
   float startY;
   if (width > height) {
@@ -80,7 +80,7 @@ void Pit::SetDimension(int gWidth, int gHeight, int gDepth) {
   origin.y = startY;
   origin.z = STARTZ;
 
-  // Init material (Pit::Create originale)
+  // Init material (original Pit::Create)
   memset (&blackMaterial, 0, sizeof (GLMATERIAL));
 
   memset (&gridMaterial, 0, sizeof (GLMATERIAL));
@@ -299,8 +299,8 @@ BOOL Pit::IsVisible2(int x, int y, int z) {
 }
 
 //-----------------------------------------------------------------------------
-// Pit::InitOrderMatrix - ordina le celle dal piu' lontano al piu' vicino
-// (painter's algorithm), identico all'originale.
+// Pit::InitOrderMatrix - sorts the cells from the farthest to the nearest
+// (painter's algorithm), identical to the original.
 //-----------------------------------------------------------------------------
 
 void Pit::InitOrderMatrix() {
@@ -361,7 +361,7 @@ void Pit::InitOrderMatrix() {
 }
 
 //-----------------------------------------------------------------------------
-// Materiali: valori identici a Pit::GetMaterial / Pit::Create di BlockOut II
+// Materials: values identical to Pit::GetMaterial / Pit::Create of BlockOut II
 //-----------------------------------------------------------------------------
 
 GLMATERIAL *Pit::GetMaterial(int level) {

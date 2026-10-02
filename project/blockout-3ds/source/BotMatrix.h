@@ -4,7 +4,7 @@
   Program:     BlockOut
   Author:      Jean-Luc PONS
 
-  Port 3DS: copiato quasi verbatim da BotMatrix.h di BlockOut II 2.5 (nessuna dipendenza da SDL/OpenGL).
+  3DS port: copied almost verbatim from BotMatrix.h of BlockOut II 2.5 (no SDL/OpenGL dependencies).
 
   This program is free software; you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by

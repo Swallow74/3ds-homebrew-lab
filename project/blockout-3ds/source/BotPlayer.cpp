@@ -4,7 +4,7 @@
   Program:     BlockOut
   Author:      Jean-Luc PONS
 
-  Port 3DS: copiato quasi verbatim da BotPlayer.cpp di BlockOut II 2.5. Le sezioni #ifdef AI_TEST / DEPTH_STATS restano escluse.
+  3DS port: copied almost verbatim from BotPlayer.cpp of BlockOut II 2.5. The #ifdef AI_TEST / DEPTH_STATS sections remain excluded.
 
   This program is free software; you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by

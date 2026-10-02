@@ -1,7 +1,7 @@
 /*
   File:        SoundManager.cpp
-  Description: Sound management - implementa la stessa API di SoundManager.cpp
-               di BlockOut II sopra il sintetizzatore NDSP (audio.c)
+  Description: Sound management - implements the same API as SoundManager.cpp
+               of BlockOut II on top of the NDSP synthesizer (audio.c)
   Program:     BlockOut / BlockOut 3DS
   Author:      Jean-Luc PONS
 

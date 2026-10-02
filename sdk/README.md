@@ -1,15 +1,15 @@
-# sdk/ — NON è il toolchain
+# sdk/ — NOT the toolchain
 
-Il vero SDK (devkitARM + libctru) vive in `/opt/devkitpro` dopo
-`tools/install-toolchain.sh`. Questa cartella serve per:
+The real SDK (devkitARM + libctru) lives in `/opt/devkitpro` after
+`tools/install-toolchain.sh`. This folder is for:
 
-- copie locali di doc/spec/PDF di riferimento,
-- patch o override header specifici di progetto (da referenziare via `INCLUDES`),
-- lock delle versioni usate (vedi sotto).
+- local copies of reference docs/specs/PDFs,
+- project-specific header patches or overrides (reference them via `INCLUDES`),
+- locking the versions in use (see below).
 
-## Versioni installate
+## Installed versions
 
-Dopo l'installazione, registra qui le versioni per riproducibilità:
+After installation, record the versions here for reproducibility:
 
 ```bash
 source ../tools/env.sh
@@ -18,4 +18,4 @@ arm-none-eabi-gcc --version | head -n 1 >> sdk/VERSIONS.txt
 cat sdk/VERSIONS.txt
 ```
 
-Non committare binari del toolchain: si reinstallano con dkp-pacman.
+Do not commit toolchain binaries: they are reinstalled with dkp-pacman.
