@@ -24,3 +24,6 @@ dl/azahar-macos-arm64-2126.1.1/
 
 # stato sessioni agent (dipendenze + memoria locale)
 .opencode/
+
+# binari di prova
+a.out

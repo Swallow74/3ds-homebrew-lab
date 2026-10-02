@@ -2,14 +2,15 @@
   File:        BotPlayer.cpp
   Description: AI player (Evaluation function)
   Program:     BlockOut
-  Author:      Jean-Luc PONS
-
-  Port 3DS: copiato quasi verbatim da BotPlayerAI.cpp di BlockOut II 2.5 (test della AI, solo #ifdef AI_TEST)., Lieven
+  Author:      Jean-Luc PONS, Lieven
 
   This program is free software; you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
   the Free Software Foundation; either version 2 of the License, or
   (at your option) any later version.
+
+  Port 3DS: copiato verbatim da BotPlayerAI.cpp di BlockOut II 2.5 (unico
+  adattamento: <stdlib.h> al posto di <malloc.h>). Coefficienti originali.
 
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -17,7 +18,6 @@
   GNU General Public License for more details.
 */
 #include "BotPlayer.h"
-#include <malloc.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -47,6 +47,7 @@ float BotPlayer::CheckDeathZone() {
   float note = 0.0f;
   int W = width-1;
   int H = height-1;
+  (void)H;
 
   // First line
   for(int j=0;j<height;j++) {
@@ -212,6 +213,7 @@ void BotPlayer::InitPitCoef() {
   memset(edgeMatrix,0,mSize*sizeof(float));
   int W = width-1;
   int H = height-1;
+  (void)H;
 
   // Fill up edge/corner bonus 
   for(int k=0;k<depth;k++) {
@@ -446,6 +448,7 @@ inline float BotPlayer::Edges() {
   int total = 0;
   int W = width-1;
   int H = height-1;
+  (void)H;
   for(int k=0;k<depth;k++) {
 
     for(int i=0;i<width;i++) {

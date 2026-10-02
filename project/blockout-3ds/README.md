@@ -9,8 +9,8 @@ di gioco, l'IA del bot e i file di setup/save sono quelli originali: sono
 stato adattato solo ciò che l'hardware 3DS richiede (sorgente input, backend
 grafico, audio, filesystem).
 
-Sorgente di riferimento estratto in `dl/BL_SRC/BlockOut/` (BlockOut II 2.5,
-124 file).
+Il sorgente originale di BlockOut II 2.5 non è incluso nel repo: si scarica da
+https://www.blockout.net/blockout2/.
 
 ## Build
 
@@ -29,36 +29,63 @@ usa `C3D/C2D` con frame buffer sinistro/destro e `gfxScreenSwapBuffers`.
 
 | File | Ruolo |
 |------|-------|
-| `main.cpp`     | init hardware, loop `aptMainLoop`, mapping pad→tasti, menu (6 modalità), pagina configurazione, pagina punteggi |
-| `render.cpp`   | renderer software 2D: proiez. con la matrice originale (`GLMatrix`/`GLCamera`), illuminazione per facce,立体 HUD, pozzo, pezzo, spark |
-| `audio.c`      | NDSP: 4 canali effetti + 1 canale musica loop (tutto sintetizzato, stessa "family" di suoni dell'originale) |
-| `Game.cpp`     | invariato: regole, pit, punteggio, timer, modalità (play/practice/demo/setup) |
-| `Pit.*`, `Piece.*`, `Cube.*`, `BotPlayer*`, `APlayer.*` | invariati |
+| `main.cpp`     | init hardware, loop `aptMainLoop`, mapping pad->tasti, flusso menu/partita, musica per stato |
+| `screens.cpp`  | intro (logo 3D a voxel), menu, setup, hall of fame, pausa, fine partita + nome |
+| `ui.cpp`       | primitive UI stile DOS: palette EGA, riquadri a doppia linea, barre, menu |
+| `render.cpp`   | renderer software 3D (pozzo, cubi, pezzo, orbita GAME OVER), HUD DOS, font bitmap 8x8 |
+| `audio.c`      | NDSP: 4 canali effetti sintetizzati (stile DOS a onda quadra o BlockOut II) |
+| `music.c`      | colonna sonora in tempo reale (sequencer + synth in thread, canale 4): menu, gioco, game over |
+| `Game.cpp`, `Pit.*`, `PolyCube.*`, `BotPlayer*`, `BotMatrix*` | logica originale di BlockOut II 2.5 |
 | `SetupManager.*` | setup + high score su SD (`/3ds/blockout/`) |
-| `bo_compat.h`  | codici tasto `BO_KEY_*` (evita i conflitti con i bit `KEY_*` di libctru) |
+| `autotest.h`   | `make AT=1`: il gioco si pilota da solo (verifica grafica in emulatore) |
 
 ## Comandi
 
-### Menu (6 voci, come l'originale)
-`su/giù` seleziona · `A`/`START` conferma · `B` esce · `SELECT` esci
+### Menu
+`su/giù` seleziona · `A`/`START` conferma · touch sulle voci · inattivita' 40 s = demo
 
 ### Gioco
 | Tasto | Azione |
 |-------|--------|
-| D-Pad | muove il pezzo nel piano 5×5 (`L` premuto: diagonali = ruota il pozzo: HOME/END/PAGEUP/PAGEDOWN) |
-| `A`   | space (discesa di una cella) |
-| `B` / `X` / `Y` | ruota il pezzo sugli assi Z1/X1/Y1 (con `R` premuto: Z2/X2/Y2) — stessi assi della pagina *Configurazione* |
-| `L`+D-Pad | ruota il **pozzo** (pitch/yaw/twist, come i tasti HOME/END/PAGEUP/PAGEDOWN originali) |
-| `ZL`  | scatta foto (spark) |
-| `ZR`  | cambia la separazione stereoscopica (0.01 … 0.11) |
-| `START` | pausa (`RETURN` a fine partita) |
-| `SELECT` | esci (menu) |
-| `L`+`R`+`START` | audio on/off |
-| C-Stick su | HUD on/off (tasto `H` dell'originale) |
+| D-Pad | muove il pezzo (`L`+D-Pad: diagonali, come 7/9/1/3 del tastierino) |
+| `A`   | discesa rapida |
+| `B` / `X` / `Y` | rotazione su Z / X / Y (`R` premuto: verso opposto) |
+| `ZL`  | suggerimento dell'IA (pratica) |
+| `ZR`  | profondita' 3D (OFF, 1..4; segue anche il cursore 3D) |
+| `START` | pausa (menu: riprendi / ricomincia / esci); ferma la demo |
+| `SELECT` | termina la partita |
 
-### Pagina configurazione
-Modifica i valori con su/giù (e sinistra/destra per i campi ampi); `A`
-salva su `/3ds/blockout/setup.dat` e applica subito le dimensioni del pozzo.
+### Setup
+Pozzo (3..7 x 3..7 x 6..18), set di blocchi, livello iniziale, velocita'
+animazioni, facce fantasma, riempimento del pezzo, profondita' 3D, effetti
+on/off, stile effetti (MS-DOS / BlockOut II), musica on/off. `B` salva.
+Le opzioni del port sono accodate a `setup.dat` (file vecchi compatibili).
+
+## Resa "MS-DOS"
+
+- fondo nero, reticolo verde a 1 pixel, strati colorati per profondita'
+  con spigoli neri, pezzo in caduta a solo filo bianco (rosso se bloccato)
+- viewport del pozzo quadrato (come l'originale: la proiezione ha aspect 1)
+- colonna dei livelli a sinistra, colonna LEVEL / SCORE / CUBES PLAYED /
+  HIGH SCORE / PIT / BLOCK SET a destra, font 8x8 CP437, palette EGA
+- orbita di GAME OVER con facce ordinate per profondita' (l'originale usava
+  lo z-buffer)
+- lampo del reticolo quando si completano strati
+
+## Correzioni (revisione 2026-09)
+
+- **IA della demo/pratica**: una versione precedente aveva invertito le
+  matrici di `BotMatrix` e cambiato i coefficienti: il bot non completava
+  mai uno strato. Ripristinati i sorgenti originali (le matrici di `Game`
+  e `GLMatrix` sono identiche all'originale).
+- **Stereoscopia invertita**: il segno della disparita' era sbagliato
+  (bocca del pozzo "dietro", fondo "davanti"). Ora disparita' zero sulla
+  bocca e pozzo dietro lo schermo, HUD sul piano dello schermo.
+- **Poligoni mancanti a pozzo pieno**: `C2D_Init(4096)` limita gli oggetti
+  per FRAME (due occhi + schermo basso): portato a 24000.
+- **Testo illeggibile**: il font di sistema scalato a 0.25 era sfocato;
+  ora font bitmap 8x8 con filtro nearest.
+- facce del fantasma (`GHOST FACES`) con vicini sbagliati sugli assi X/Y.
 
 ## Adattamenti (solo hardware)
 
@@ -68,62 +95,17 @@ salva su `/3ds/blockout/setup.dat` e applica subito le dimensioni del pozzo.
   cristallo, numeri, sfondi) non sono nel pacchetto sorgente, quindi il
   renderer usa lo stile **CLASSIC** con le tavolozze colore e i materiali
   (diffuse/ambient) identici a `Pit::Create`/`Game::Create`
-- Audio: SDL_mixer → NDSP sintetizzato (4 canali effetti + 1 musica in loop)
-- Filesystem: `%APPDATA%`/`HOME` → `/3ds/blockout/` (`setup.dat`, `hscore.dat`)
-- Lo schermo superiore è il pozzo (400×240, stereoscopico), quello inferiore
-  è la colonna del livello/punteggi (come nell'originale)
+- Audio: SDL_mixer -> NDSP sintetizzato (4 canali effetti + musica in streaming)
+- Filesystem: `%APPDATA%`/`HOME` -> `/3ds/blockout/` (`setup.dat`, `hscore.dat`)
+- Schermo superiore: pozzo + HUD (400x240, stereoscopico); inferiore:
+  statistiche, comandi, menu toccabili
 
-## Stato / da verificare
-
-## Diagnostica di avvio
-
-All'avvio viene mostrato per ~2 s un frame di test (barre rosso/verde/blu +
-testo **BOOT OK** su entrambi gli schermi, voce `BOOT_SELFTEST` in
-`main.cpp`). Serve a capire dove si ferma il problema:
-
-- **non vedi nulla** → problema di avvio/pipeline grafico di base (non del
-  gioco): verificare loader/emulatore e init
-- **vedi BOOT OK ma poi schermo vuoto** → il blocco è in `Game::Create` o
-  nel rendering del pozzo/HUD
-- **vedi BOOT OK e poi il menu** → tutto ok, togli `BOOT_SELFTEST`
-
-Due bug corretti dopo il primo test (schermo completamente vuoto):
-
-### Corretto dopo la seconda prova su target (cubi neri, pezzo invisibile)
-
-- **Materiali dei cubi del pozzo**: `Pit::GetMaterial(level)` restituisce un
-  puntatore a un `static` (come nell'originale). Il renderer 3DS costruiva una
-  `mats[24]` *prima* del loop di disegno: tutti gli entry puntavano allo stesso
-  `static`, quindi ogni cubo usava il colore dell'ultima chiamata (level
-  fuori-range → `memset` a zero → **nero**). Ora il materiale viene riletto
-  **per ogni cella**, esattamente come fa `Pit::Render` nell'originale.
-- **Il pezzo corrente non compariva**: `Game::Update` costruisce `mat` partendo
-  da `matView` (fedele all'originale `glLoadMatrixf(matView)`), ma il renderer
-  moltiplicava di nuovo la vista (`gView * mat`) → doppia transform, pezzi
-  dietro la camera e mai disegnati. Ora `Game` espone anche `matPiece` /
-  `matAIPiece` (le stesse matrici **senza** `matView`) e il renderer applica la
-  vista per occhio una sola volta.
-
-Nota sulla prospettiva ( identica all'originale): l'estremita' **vicina** del
-pozzo (z = 0, dove nasce il pezzo) e' in **basso** sullo schermo ed e' grande;
-il fondo del pozzo (z = depth-1) e' **lontano**, al centro e piccolo. Il pezzo
-quindi "scende" allontanandosi dalla camera.
-
-
-- i colori in `render.h` (`COL_*`) avevano **alpha = 0**: con citro2d
-  (`C2D_Color32` = R|G<<8|B<<16|A<<24) qualunque oggetto disegnato era
-  completamente trasparente → corretto con `OPAQUE()` e alpha `0xFF`
-- `bo_compat.h` aveva **GL_OK/GL_FAIL invertiti** (0/-1 invece di 1/0 come
-  in `GLApp.h` dell'originale): `Game::StartGame` conteneva
-  `if( !Create(...) ) exit(0);` → l'app si chiudeva appena si avviava
-  una partita
+## Stato
 
 - [x] Compila pulito: `output/blockout-3ds.3dsx`
-- [x] Primo run su target: menu/HUD/geometrica visibili; cubi neri e pezzo
-      invisibile (corretti, vedi sopra). Da riverificare: discesa, colori per
-      layer, parallasse, audio, file su SD e i flussi menu/pratica/demo
-- [ ] Texture di stile (MARBLE/ARCADE) e sfondi: assenti nel sorgente estratto
-      (il renderer forza lo stile CLASSIC con le tavolozze originali)
-- [ ] `Game::InitializeMaterials` usa `Pit::GetMaterial(level)` (per-colori per
-      layer, identico all'originale): i valori sono corretti, ma i materiali
-      per stile non-CLASSIC richiedono le texture mancanti
+- [x] Verificato in Azahar (autotest): intro, menu, setup, hall of fame,
+      partita, pausa, game over + nome, pratica con suggerimento, demo che
+      completa strati
+- [ ] Da provare su console: effetto 3D reale, audio/musica, prestazioni
+      su Old 3DS
+- [ ] Texture di stile (MARBLE/ARCADE): assenti nel sorgente, resta CLASSIC

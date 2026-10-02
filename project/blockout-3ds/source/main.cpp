@@ -19,7 +19,8 @@
      HandleKey() dell'originale funziona immutato;
    * menu e pagina di configurazione disegnati con il renderer software
      (l'originale usava le pagine SDL/OpenGL);
-   * profondita' stereoscopica regolabile (ZR), audio regolabile (L+R+START).
+   * profondita' stereoscopica regolabile (ZR), aiuto in pratica (ZL);
+   * colonna sonora in tempo reale (music.c): menu, gioco, fine partita.
 */
 
 #include <3ds.h>
@@ -27,6 +28,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <stdlib.h>
+#include <time.h>
 #include <math.h>
 
 /* Costanti dei pulsanti (i nomi di libctru vengono qui tradotti in HK_*:
@@ -47,35 +49,27 @@ static const u32 HK_DOWN   = KEY_DOWN;
 static const u32 HK_LEFT   = KEY_LEFT;
 static const u32 HK_RIGHT  = KEY_RIGHT;
 static const u32 HK_CST_UP = KEY_CSTICK_UP;
-static const u32 HK_CST_DOWN = KEY_CSTICK_DOWN;
-static const u32 HK_CST_LEFT = KEY_CSTICK_LEFT;
-static const u32 HK_CST_RIGHT = KEY_CSTICK_RIGHT;
 
 #include "render.h"
 #include "Game.h"
 #include "SetupManager.h"
 #include "SoundManager.h"
 #include "audio.h"
-
-/* Diagnostica di avvio: barre colorate + "BOOT OK" per 2.2 s.
-   Metti 0 per rimuoverla dalla build finale. */
-#define BOOT_SELFTEST 1
+#include "music.h"
+#include "screens.h"
+#include "autotest.h"
 
 #define TOPW  400
 #define TOTH  240
-#define BOTW  320
 
 static SetupManager setupManager;
 static SoundManager soundManager;
 static Game         game;
 
 static BYTE  keys[BO_KEY_LAST];
-static float stereoPx = 7.5f;
-
 static u64   tickBase = 0;
-
-static u32 hkPressed = 0;
-static u32 hkHeld    = 0;
+static u32   hkPressed = 0;
+static u32   hkHeld    = 0;
 
 static float getTime(void) {
   return (float)((double)(svcGetSystemTick() - tickBase) / (double)SYSCLOCK_ARM11);
@@ -85,6 +79,16 @@ static void pollInput(void) {
   hidScanInput();
   hkHeld    = hidKeysHeld();
   hkPressed = hidKeysDown();
+}
+
+/* Applica le opzioni del Setup ai moduli del port */
+static void applySetup(void) {
+  soundManager.SetEnable(setupManager.GetSound() ? TRUE : FALSE);
+  audio_set_enable(setupManager.GetSound() ? true : false);
+  audio_set_style(setupManager.GetSoundType() == SOUND_BLOCKOUT);
+  audio_music_enable(setupManager.GetMusic() ? true : false);
+  render_set_stereo(stereoLevelPx(setupManager.GetStereo()));
+  render_set_piece_fill(setupManager.GetPieceFill());
 }
 
 /* ------------------------------------------------------------------ */
@@ -155,328 +159,152 @@ static void fillGameKeys(u32 held, u32 pressed, float now) {
   if (pressed & HK_CST_UP) keys['H'] = 1;
 }
 
-/* ------------------------------------------------------------------ */
-/* Menu                                                                 */
-/* ------------------------------------------------------------------ */
-
-enum {
-  ACT_NONE = 0, ACT_PLAY, ACT_PRACTICE, ACT_DEMO, ACT_SETUP, ACT_HISCORE, ACT_EXIT
-};
-
-static const char *menuItems[] = {
-  "New Game",
-  "Practice",
-  "Demo",
-  "Setup",
-  "High Scores",
-  "Exit"
-};
-#define MENU_NB 6
-
-static void drawMenu(int sel) {
-  render_clear(COL_BG);
-  for (int eye = 0; eye < 2; eye++) {
-    render_begin_top(eye);
-    r_text(200.0f, 24.0f, 34.0f, COL_GREEN, "BLOCKOUT", 1, 0);
-    r_text(200.0f, 66.0f, 13.0f, COL_GRAY,  "from the original DOS game (BlockOut II 2.5)", 1, 0);
-    for (int i = 0; i < MENU_NB; i++) {
-      uint32_t c = (i == sel) ? COL_WHITE : COL_GRAY;
-      float yy = 100.0f + i * 22.0f;
-      r_text(200.0f, yy, 17.0f, c, menuItems[i], 1, 0);
-      if (i == sel) {
-        float w = r_text_width(menuItems[i], 17.0f);
-        r_line(200.0f - w * 0.5f - 16.0f, yy + 8.0f,
-               200.0f - w * 0.5f - 6.0f,  yy + 8.0f, 2.0f, COL_GREEN);
-      }
-    }
-    render_flush();
-  }
-
-  render_begin_bottom();
-  r_rect(0.0f, 0.0f, BOTW, 240.0f, COL_BLACK);
-  r_text(160.0f, 18.0f, 15.0f, COL_GREEN, "BlockOut 3DS", 1, 0);
-  r_text(160.0f, 46.0f, 12.0f, COL_WHITE, "D-pad/stick: select", 1, 0);
-  r_text(160.0f, 64.0f, 12.0f, COL_WHITE, "A: confirm   B: exit", 1, 0);
-  r_text(160.0f, 104.0f, 12.0f, COL_GREEN, "Game controls", 0, 0);
-  r_text(8.0f, 124.0f, 12.0f, COL_WHITE, "D-pad/stick: move piece", 0, 0);
-  r_text(8.0f, 142.0f, 12.0f, COL_WHITE, "L + D-pad: diagonals", 0, 0);
-  r_text(8.0f, 160.0f, 12.0f, COL_WHITE, "A: drop   B/X/Y: rotate", 0, 0);
-  r_text(8.0f, 178.0f, 12.0f, COL_WHITE, "R + B/X/Y: reverse rotation", 0, 0);
-  r_text(8.0f, 196.0f, 12.0f, COL_WHITE, "START: pause   SELECT: exit", 0, 0);
-  r_text(8.0f, 214.0f, 12.0f, COL_WHITE, "ZR: 3D   L+R+START: sound", 0, 0);
-  render_flush();
-  render_swap(true);
-}
-
-static int runMainMenu(void) {
-  int sel = 0;
-  int act = ACT_NONE;
-
-  while (aptMainLoop()) {
-    drawMenu(sel);
-    pollInput();
-
-    if (hkPressed & (HK_UP | HK_CST_UP))      { sel = (sel + MENU_NB - 1) % MENU_NB; audio_tchh(); }
-    if (hkPressed & (HK_DOWN | HK_CST_DOWN))  { sel = (sel + 1) % MENU_NB;            audio_tchh(); }
-
-    if (hkPressed & (HK_A | HK_START)) {
-      act = sel + ACT_PLAY;
-      audio_wozz();
-      break;
-    }
-    if (hkPressed & HK_B) { act = ACT_EXIT; break; }
-    if (hkPressed & HK_X) { act = ACT_PLAY; break; }   /* scorciatoia */
-  }
-  return act;
-}
-
-/* ------------------------------------------------------------------ */
-/* Configurazione                                                      */
-/* ------------------------------------------------------------------ */
-
-/* Righe della configurazione: etichetta, sezione, descrizione */
-struct SetupRow {
-  const char *label;
-  const char *section;   /* intestazione mostrata sopra la prima riga del gruppo */
-  const char *desc;
-};
-static const SetupRow setupRows[] = {
-  { "Width",    "PIT",    "Pit width (3-7)" },
-  { "Height",   NULL,     "Pit height (3-7)" },
-  { "Depth",    NULL,     "Pit depth (6-18)" },
-  { "Piece set","BLOCKS", "FLAT, BASIC or EXTENDED" },
-  { "Faces",    NULL,     "Transparent faces (0 = opaque)" },
-  { "Speed",    "GAME",   "Drop speed (0-10)" },
-  { "Level",    NULL,     "Starting level (0-9)" },
-  { "Sound",    "AUDIO",  "Music and effects (ON/OFF)" },
-};
-#define SETUP_NB 8
-
-static void setupValueText(int idx, char *buf, size_t n) {
-  switch (idx) {
-    case 0: snprintf(buf, n, "%d", setupManager.GetPitWidth()); break;
-    case 1: snprintf(buf, n, "%d", setupManager.GetPitHeight()); break;
-    case 2: snprintf(buf, n, "%d", setupManager.GetPitDepth()); break;
-    case 3: snprintf(buf, n, "%s", setupManager.GetBlockSetName()); break;
-    case 4: snprintf(buf, n, "%d", setupManager.GetTransparentFace()); break;
-    case 5: snprintf(buf, n, "%d", setupManager.GetAnimationSpeed()); break;
-    case 6: snprintf(buf, n, "%d", setupManager.GetStartingLevel()); break;
-    case 7: snprintf(buf, n, "%s", setupManager.GetSound() ? "ON" : "OFF"); break;
-    default: snprintf(buf, n, "-"); break;
-  }
-}
-
-static void drawSetupPage(int sel) {
-  render_clear(COL_BG);
-  for (int eye = 0; eye < 2; eye++) {
-    render_begin_top(eye);
-    r_text(200.0f, 6.0f, 22.0f, COL_GREEN, "SETUP", 1, 0);
-
-    float y = 40.0f;
-    char val[24];
-    for (int i = 0; i < SETUP_NB; i++) {
-      if (setupRows[i].section) {
-        r_text(64.0f, y, 11.0f, COL_GREEN, setupRows[i].section, 0, 0);
-        y += 13.0f;
-      }
-      if (i == sel)
-        r_rect(40.0f, y - 3.0f, 320.0f, 15.0f, r_color(20, 40, 24, 255));
-
-      uint32_t lc = (i == sel) ? COL_WHITE : COL_GRAY;
-      r_text(64.0f, y, 13.0f, lc, setupRows[i].label, 0, 0);
-
-      /* pill del valore */
-      setupValueText(i, val, sizeof(val));
-      uint32_t pb = (i == sel) ? COL_GREEN : COL_GRAY;
-      r_rect(252.0f, y - 3.0f, 96.0f, 15.0f, r_color(10, 12, 16, 255));
-      r_rect(252.0f, y - 3.0f, 96.0f, 1.0f, pb);
-      r_rect(252.0f, y + 11.0f, 96.0f, 1.0f, pb);
-      r_rect(252.0f, y - 3.0f, 1.0f, 15.0f, pb);
-      r_rect(347.0f, y - 3.0f, 1.0f, 15.0f, pb);
-      if (i == sel) {
-        r_text(260.0f, y, 13.0f, COL_GREEN, "<", 0, 0);
-        r_text(340.0f, y, 13.0f, COL_GREEN, ">", 0, 0);
-      }
-      r_text(300.0f, y, 13.0f, lc, val, 1, 0);
-      y += 15.0f;
-    }
-    render_flush();
-  }
-  render_begin_bottom();
-  r_rect(0.0f, 0.0f, BOTW, 240.0f, COL_BLACK);
-  r_text(160.0f, 20.0f, 15.0f, COL_GREEN, "Setup", 1, 0);
-  r_text(160.0f, 48.0f, 12.0f, COL_WHITE, "D-pad/stick up/down: item", 1, 0);
-  r_text(160.0f, 66.0f, 12.0f, COL_WHITE, "D-pad/stick left/right: value", 1, 0);
-  r_text(160.0f, 84.0f, 12.0f, COL_WHITE, "A: save    B: cancel", 1, 0);
-  r_line(24.0f, 112.0f, 296.0f, 112.0f, 1.0f, COL_GRAY);
-  r_text(160.0f, 124.0f, 13.0f, COL_WHITE, setupRows[sel].label, 1, 0);
-  r_text(160.0f, 144.0f, 12.0f, COL_GREEN, setupRows[sel].desc, 1, 0);
-  render_flush();
-  render_swap(true);
-}
-
-static void runSetupPage(void) {
-  /* istantanea per il vero annulla con B (i Set* mutano i valori live) */
-  int snap[SETUP_NB] = {
-    setupManager.GetPitWidth(), setupManager.GetPitHeight(),
-    setupManager.GetPitDepth(), setupManager.GetBlockSet(),
-    setupManager.GetTransparentFace(), setupManager.GetAnimationSpeed(),
-    setupManager.GetStartingLevel(), setupManager.GetSound() ? 1 : 0
-  };
-
-  int sel = 0;
-
-  while (aptMainLoop()) {
-    drawSetupPage(sel);
-    pollInput();
-
-    int dv = 0;
-    if (hkPressed & (HK_UP | HK_CST_UP))        { sel = (sel + SETUP_NB - 1) % SETUP_NB; audio_tchh(); }
-    if (hkPressed & (HK_DOWN | HK_CST_DOWN))    { sel = (sel + 1) % SETUP_NB;             audio_tchh(); }
-    if (hkPressed & (HK_LEFT | HK_CST_LEFT))    { dv = -1; }
-    if (hkPressed & (HK_RIGHT | HK_CST_RIGHT))  { dv = +1; }
-
-    if (dv) {
-      switch (sel) {
-        case 0: setupManager.SetPitWidth(setupManager.GetPitWidth() + dv); break;
-        case 1: setupManager.SetPitHeight(setupManager.GetPitHeight() + dv); break;
-        case 2: setupManager.SetPitDepth(setupManager.GetPitDepth() + dv); break;
-        case 3: setupManager.SetBlockSet(setupManager.GetBlockSet() + dv); break;
-        case 4: setupManager.SetTransparentFace(setupManager.GetTransparentFace() + dv); break;
-        case 5: setupManager.SetAnimationSpeed(setupManager.GetAnimationSpeed() + dv); break;
-        case 6: setupManager.SetStartingLevel(setupManager.GetStartingLevel() + dv); break;
-        case 7: {
-          int s = (setupManager.GetSound() ? 1 : 0) + dv;
-          if (s < 0) s = 0;
-          if (s > 1) s = 1;
-          setupManager.SetSound(s ? TRUE : FALSE);
-          soundManager.SetEnable(s ? TRUE : FALSE);
-          audio_set_enable(s ? true : false);
-          if (s) soundManager.PlayMusic();
-          break;
-        }
-      }
-      audio_blub();
-    }
-
-    if (hkPressed & HK_A) {
-      setupManager.WriteSetup();
-      game.InvalidateDeviceObjects();
-      audio_wozz();
-      break;
-    }
-    if (hkPressed & HK_B) {
-      /* annulla: ripristina l'istantanea */
-      setupManager.SetPitWidth(snap[0]);
-      setupManager.SetPitHeight(snap[1]);
-      setupManager.SetPitDepth(snap[2]);
-      setupManager.SetBlockSet(snap[3]);
-      setupManager.SetTransparentFace(snap[4]);
-      setupManager.SetAnimationSpeed(snap[5]);
-      setupManager.SetStartingLevel(snap[6]);
-      setupManager.SetSound(snap[7] ? TRUE : FALSE);
-      soundManager.SetEnable(snap[7] ? TRUE : FALSE);
-      audio_set_enable(snap[7] ? true : false);
-      audio_tchh();
-      break;
-    }
-  }
-}
-
-/* ------------------------------------------------------------------ */
-/* Hall of fame                                                        */
-/* ------------------------------------------------------------------ */
-
-static void runHiScorePage(void) {
-  SCOREREC best;
-  memset(&best, 0, sizeof(best));
-  setupManager.GetHighScore(&best);
-
-  while (aptMainLoop()) {
-    render_clear(COL_BG);
-    for (int eye = 0; eye < 2; eye++) {
-      render_begin_top(eye);
-      r_text(200.0f, 30.0f, 26.0f, COL_GREEN, "HIGH SCORES", 1, 0);
-      char buf[80];
-      snprintf(buf, sizeof(buf), "%s", best.name[0] ? best.name : "(no scores yet)");
-      r_text(200.0f, 90.0f, 18.0f, COL_WHITE, buf, 1, 0);
-      snprintf(buf, sizeof(buf), "%d points  -  level %d", (int)best.score, (int)best.startLevel);
-      r_text(200.0f, 120.0f, 15.0f, COL_WHITE, buf, 1, 0);
-      snprintf(buf, sizeof(buf), "%d cubes  -  %s", (int)best.nbCube,
-               setupManager.GetBlockSetName());
-      r_text(200.0f, 146.0f, 15.0f, COL_GRAY, buf, 1, 0);
-      render_flush();
-    }
-    render_begin_bottom();
-    r_rect(0.0f, 0.0f, BOTW, 240.0f, COL_BLACK);
-    r_text(160.0f, 100.0f, 14.0f, COL_WHITE, "A or B: back", 1, 0);
-    render_flush();
-    render_swap(true);
-
-    pollInput();
-    if (hkPressed & (HK_A | HK_B | HK_START | HK_X)) break;
-  }
-}
+enum { ACT_NONE = 0, ACT_PLAY, ACT_PRACTICE, ACT_DEMO };
 
 /* ------------------------------------------------------------------ */
 /* Partita                                                             */
 /* ------------------------------------------------------------------ */
 
-static void runGamePlay(int act) {
+/* Ritorna 1 se l'utente vuole uscire dall'app */
+static int runGamePlay(int act) {
 
-  float fTime = getTime();
+  int leave = 0;
 
-  switch (act) {
-    case ACT_PLAY:     game.StartGame(TOPW, TOTH, fTime);     break;
-    case ACT_PRACTICE: game.StartPractice(TOPW, TOTH, fTime); break;
-    case ACT_DEMO:     game.StartDemo(TOPW, TOTH, fTime);     break;
-    default: return;
+  for (;;) {
+
+    int retry = 0;
+    int exitValue = 0;
+    float fTime = getTime();
+
+    switch (act) {
+      case ACT_PLAY:     game.StartGame(TOPW, TOTH, fTime);     break;
+      case ACT_PRACTICE: game.StartPractice(TOPW, TOTH, fTime); break;
+      case ACT_DEMO:     game.StartDemo(TOPW, TOTH, fTime);     break;
+      default: return 0;
+    }
+    int lastMode = game.GetGameMode();
+    audio_music(MUS_GAME);
+
+    while (aptMainLoop()) {
+
+      pollInput();
+
+      fTime = getTime();
+      memset(keys, 0, sizeof(keys));
+      fillGameKeys(hkHeld, hkPressed, fTime);
+#if AUTOTEST
+      {
+        static float atOver = 0.0f;
+        if (game.GetGameMode() == GAME_OVER) {
+          if (atOver == 0.0f) atOver = fTime;
+          else if (fTime - atOver > 9.0f) { keys[BO_KEY_RETURN] = 1; atOver = 0.0f; }
+        } else atOver = 0.0f;
+      }
+      /* input casuale: riempie il pozzo in fretta (prova della grafica) */
+      if (act != ACT_DEMO && game.GetGameMode() == GAME_PLAYING) {
+        static float atNext = 0.0f;
+        static int atPaused = 0;
+        if (fTime >= atNext) {
+          static const int kk[] = { BO_KEY_UP, BO_KEY_DOWN, BO_KEY_LEFT, BO_KEY_RIGHT, 'Q', 'W', 'E', BO_KEY_SPACE };
+          keys[kk[rand() % 8]] = 1;
+          atNext = fTime + 0.18f;
+          if (act == ACT_PRACTICE && (rand() % 6) == 0) keys['H'] = 1;
+        }
+        if (!atPaused && fTime - game.GetScore()->gameTime > 0.0f && (rand() % 900) == 0) {
+          atPaused = 1;
+          keys['P'] = 1;
+        }
+      }
+#endif
+
+      /* START: pausa/ripresa, a fine partita torna al menu */
+      if (hkPressed & HK_START) {
+        int gm = game.GetGameMode();
+        if (gm == GAME_PLAYING || gm == GAME_PAUSED) keys['P'] = 1;
+        else if (gm == GAME_DEMO) keys[BO_KEY_ESCAPE] = 1;   /* START ferma la demo */
+        else keys[BO_KEY_RETURN] = 1;
+      }
+      /* SELECT: interrompe la partita (come ESC originale) */
+      if (hkPressed & HK_SELECT) keys[BO_KEY_ESCAPE] = 1;
+
+      /* ZL: aiuto in pratica */
+      if (hkPressed & HK_ZL) keys['H'] = 1;
+
+      /* ZR: profondita' stereoscopica a scatti (OFF, 1..4), salvata */
+      if (hkPressed & HK_ZR) {
+        setupManager.SetStereo((setupManager.GetStereo() + 1) % 5);
+        render_set_stereo(stereoLevelPx(setupManager.GetStereo()));
+        audio_blub();
+      }
+
+      /* colonna sonora: brano di gioco, jingle alla fine */
+      int gmNow = game.GetGameMode();
+      if (gmNow == GAME_OVER && lastMode != GAME_OVER) audio_music(MUS_OVER);
+      lastMode = gmNow;
+
+      int exitValue2 = game.Process(keys, fTime);
+
+      render_clear(COL_BG);
+      game.Render();
+
+      /* Il gioco si e' congelato da solo: sopra il pozzo fermo compare il
+         menu di pausa (toccare una riga sullo schermo basso).  Riprendere
+         manda di nuovo 'P': Process() recupera il tempo di pausa sugli
+         timestamp, come nell'originale. */
+      if (exitValue2 == 0 && game.GetGameMode() == GAME_PAUSED) {
+        render_swap(true);
+        int pr = runPauseMenu(&game);
+        if (pr == 0) {
+          /* esce come ESC dell'originale: riprende e interrompe, cosi'
+             Game registra il tempo e sceglie 1 (partita) o 2 (pratica) */
+          memset(keys, 0, sizeof(keys));
+          keys['P'] = 1;
+          game.Process(keys, getTime());
+          memset(keys, 0, sizeof(keys));
+          keys[BO_KEY_ESCAPE] = 1;
+          exitValue = game.Process(keys, getTime());
+          if (exitValue == 0) exitValue = (act == ACT_PLAY) ? 1 : 2;
+          break;
+        }
+        if (pr == 2) {
+          if (act == ACT_PRACTICE) game.StartPractice(TOPW, TOTH, getTime());
+          else game.StartGame(TOPW, TOTH, getTime());
+          audio_music(MUS_GAME);
+          continue;
+        }
+        memset(keys, 0, sizeof(keys));
+        keys['P'] = 1;
+        game.Process(keys, getTime());
+        continue;
+      }
+
+      render_swap(true);
+
+      if (exitValue2 != 0) { exitValue = exitValue2; break; }
+      if (!game.GetInited()) break;
+    }
+
+    /* come BlockOut.cpp:171 - solo la partita vera entra in classifica */
+    if (exitValue == 1) {
+      SCOREREC *added = NULL;
+      game.GetScore()->date = (uint32_t)time(NULL);
+      int pos = setupManager.InsertHighScore(game.GetScore(), &added);
+      if (added != NULL) {
+        if (setupManager.GetSoundType() == SOUND_BLOCKOUT) audio_welldone2();
+        else audio_welldone();
+      }
+
+      int r = runGameOverScreen(&game, &setupManager, added, pos);
+      setupManager.SaveHighScore();
+
+      if (r == 1) retry = 1;        /* ricomincia la stessa partita */
+      if (r == 0) leave = 1;        /* exit */
+    }
+
+    if (!retry || leave) break;
   }
 
-  while (aptMainLoop()) {
-
-    pollInput();
-
-    fTime = getTime();
-    memset(keys, 0, sizeof(keys));
-    fillGameKeys(hkHeld, hkPressed, fTime);
-
-    /* START: pausa/ripresa, a fine partita torna al menu */
-    if (hkPressed & HK_START) {
-      int gm = game.GetGameMode();
-      if (gm == GAME_PLAYING || gm == GAME_PAUSED) keys['P'] = 1;
-      else keys[BO_KEY_RETURN] = 1;
-    }
-    /* SELECT: interrompe la partita (come ESC originale) */
-    if (hkPressed & HK_SELECT) keys[BO_KEY_ESCAPE] = 1;
-
-    /* ZL: aiuto in pratica */
-    if (hkPressed & HK_ZL) keys['H'] = 1;
-
-    /* ZR: profondita' stereoscopica a scatti (0 = 2D), con cap anti-sdoppiamento */
-    if (hkPressed & HK_ZR) {
-      stereoPx += 2.5f;
-      if (stereoPx > 12.0f) stereoPx = 0.0f;
-      render_set_stereo(stereoPx);
-      audio_blub();
-    }
-    /* L+R+START: audio on/off */
-    if ((hkPressed & HK_START) && (hkHeld & HK_L) && (hkHeld & HK_R)) {
-      BOOL en = soundManager.GetEnable() ? FALSE : TRUE;
-      soundManager.SetEnable(en);
-      audio_set_enable(en ? true : false);
-      audio_wozz();
-    }
-
-    int exitValue = game.Process(keys, fTime);
-
-    render_clear(COL_BG);
-    game.Render();
-    render_swap(true);
-
-    if (exitValue != 0) break;
-    if (!game.GetInited()) break;
-  }
+  return leave;
 }
 
 /* ------------------------------------------------------------------ */
@@ -490,54 +318,36 @@ int main(void) {
   hidInit();
   osSetSpeedupEnable(true);
 
-  audio_init();
   render_init();
-  render_set_stereo(stereoPx);
-
-#if BOOT_SELFTEST
-  /* Diagnostica: se non compare "BOOT OK" con le barre colorate, il problema
-     NON e' il gioco ma l'avvio / il pipeline grafico di base. */
-  render_boot_test();
-  usleep(2200000);
-#endif
-
-  soundManager.Create();
-  soundManager.SetEnable(setupManager.GetSound() ? TRUE : FALSE);
-  audio_set_enable(setupManager.GetSound() ? true : false);
+  soundManager.Create();           /* audio_init: NDSP + thread musica */
+  applySetup();
 
   game.SetSetupManager(&setupManager);
   game.SetSoundManager(&soundManager);
-
-  /* come nell'originale BlockOut.cpp: Create() una sola volta all'avvio */
+  /* come BlockOut.cpp: Create() una sola volta all'avvio */
   game.Create(TOPW, TOTH);
+
+  runIntroScreen();
 
   tickBase = svcGetSystemTick();
 
   bool running = true;
   while (running && aptMainLoop()) {
 
-    /* sottofondo del menu (no-op se gia' in play o con audio spento);
-       resta anche in setup/punteggi e nella demo ("demo music" originale) */
-    soundManager.PlayMusic();
-
-    int act = runMainMenu();
+    int act = runMenuScreen(&game, &setupManager);
 
     switch (act) {
-      case ACT_PLAY:
-      case ACT_PRACTICE:
-        soundManager.StopMusic();   /* in partita solo effetti, come l'originale */
-        runGamePlay(act);
+      case SCR_PLAY:     if (runGamePlay(ACT_PLAY)) running = false; break;
+      case SCR_PRACTICE: if (runGamePlay(ACT_PRACTICE)) running = false; break;
+      case SCR_DEMO:     if (runGamePlay(ACT_DEMO)) running = false; break;
+      case SCR_SETUP:
+        runSetupScreen(&game, &setupManager, &soundManager);
+        applySetup();
         break;
-      case ACT_DEMO:
-        runGamePlay(act);
+      case SCR_HISCORE:
+        runHiScoreScreen(&setupManager);
         break;
-      case ACT_SETUP:
-        runSetupPage();
-        break;
-      case ACT_HISCORE:
-        runHiScorePage();
-        break;
-      case ACT_EXIT:
+      case SCR_EXIT:
       default:
         running = false;
         break;

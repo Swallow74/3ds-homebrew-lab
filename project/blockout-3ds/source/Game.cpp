@@ -293,6 +293,7 @@ void Game::StartGame(int width, int height, float fTime) {
     gameMode = GAME_PLAYING;
     thePit.Clear();
     stepTime = timeBase * powf(timeLevelFactor,(float)level);
+    soundManager->SetMusicTempo(1.0f + 0.03f * (float)level);
     exitValue = 0;
     cubePerLevel = thePit.GetHeight() * 15 + thePit.GetWidth() * 15;
     highScore = setupManager->GetHighScore();
@@ -300,6 +301,7 @@ void Game::StartGame(int width, int height, float fTime) {
     curTime = fTime;
     memcpy(pitMatrix , matView , sizeof(GLfloat) * 16);
     endAnimStarted = FALSE;
+    startEndTime = 0.0f;
     demoFlag = FALSE;
     practiceFlag = FALSE;
 
@@ -435,6 +437,7 @@ int Game::Process(BYTE *keys,float fTime) {
       if( keys[BO_KEY_ESCAPE] ) {
         score.gameTime = curTime - startGameTime;
         gameMode = GAME_OVER;
+        startEndTime = curTime + 0.5f;
         keys[BO_KEY_ESCAPE]=0;
         return 2;
       }
@@ -453,27 +456,27 @@ int Game::Process(BYTE *keys,float fTime) {
         } else {
 
           startRotateTime = curTime;
-          rotateMode = AIMoves[curAIMove].rotate;
-          switch( rotateMode ) {
-           case 1:
-             newMatRot.Multiply(&matRot,&matRotOx);
-             break;
-           case 2:
-             newMatRot.Multiply(&matRot,&matRotOy);
-             break;
-           case 3:
-             newMatRot.Multiply(&matRot,&matRotOz);
-             break;
-           case 4:
-             newMatRot.Multiply(&matRot,&matRotNOx);
-             break;
-           case 5:
-             newMatRot.Multiply(&matRot,&matRotNOy);
-             break;
-           case 6:
-             newMatRot.Multiply(&matRot,&matRotNOz);
-             break;
-          }
+           rotateMode = AIMoves[curAIMove].rotate;
+           switch( rotateMode ) {
+            case 1:
+              newMatRot.Multiply(&matRot,&matRotOx);
+              break;
+            case 2:
+              newMatRot.Multiply(&matRot,&matRotOy);
+              break;
+            case 3:
+              newMatRot.Multiply(&matRot,&matRotOz);
+              break;
+            case 4:
+              newMatRot.Multiply(&matRot,&matRotNOx);
+              break;
+            case 5:
+              newMatRot.Multiply(&matRot,&matRotNOy);
+              break;
+            case 6:
+              newMatRot.Multiply(&matRot,&matRotNOz);
+              break;
+           }
 
           if( AIMoves[curAIMove].tx || AIMoves[curAIMove].ty || AIMoves[curAIMove].tz ) {
             xPos += AIMoves[curAIMove].tx;
@@ -633,8 +636,9 @@ int Game::Process(BYTE *keys,float fTime) {
 
 
   if( gameMode==GAME_OVER ) {
-    // Start pit animation
-    startEndTime = fTime + 0.5f;
+    // pit animation start time is set where gameMode becomes GAME_OVER
+    // (SelectPolyCube / HandleKey ESC); do NOT reset it every frame or
+    // pTime would never become positive and the orbit would never play.
   }
 
   // Compute block transformation matrix
@@ -674,19 +678,67 @@ int Game::Process(BYTE *keys,float fTime) {
 
 void Game::AddPolyCube() {
 
+   // Fix BASIC malformed pit / floating piece: assicura che il pezzo sia
+   // dentro il pozzo e droppato fino in fondo prima di aggiungerlo.
+   // Su 3DS con pezzi BASIC 3D la wall-kick dell'AI (BotMatrix) era
+   // speculare a GLMatrix e poteva lasciare x/y fuori bounds o z sospeso
+   // sul primo livello; il pit risultava malformato o usciva dallo schermo.
+   {
+     // 1) riporta dentro in x/y se necessario (max 5 tentativi)
+     for(int iter=0; iter<5; ++iter){
+       BLOCKITEM tmp[MAX_CUBE]; int nbTmp;
+       allPolyCube[pIdx].CopyCube(tmp,&nbTmp);
+       TransformCube(&newMatRot,tmp,nbTmp,xPos,yPos,zPos);
+       int minX=100, maxX=-100, minY=100, maxY=-100;
+       for(int i=0;i<nbTmp;i++){
+         if(tmp[i].x < minX) minX = tmp[i].x;
+         if(tmp[i].x > maxX) maxX = tmp[i].x;
+         if(tmp[i].y < minY) minY = tmp[i].y;
+         if(tmp[i].y > maxY) maxY = tmp[i].y;
+       }
+       int dx=0, dy=0;
+       if(minX < 0) dx = -minX;
+       else if(maxX >= thePit.GetWidth()) dx = thePit.GetWidth() - maxX - 1;
+       if(minY < 0) dy = -minY;
+       else if(maxY >= thePit.GetHeight()) dy = thePit.GetHeight() - maxY - 1;
+       if(dx==0 && dy==0) break;
+       xPos += dx; yPos += dy;
+       InitTranslate();
+     }
+     // 2) droppa fino in fondo (come StartDrop ma qui garantito)
+     int dropZ = zPos;
+     // evita loop infinito se già fuori bounds in x/y (IsOverlap true per oob)
+     for(int guard=0; guard < thePit.GetDepth()+5; ++guard){
+       if(IsOverlap(&newMatRot,xPos,yPos,dropZ+1)) break;
+       dropZ++;
+     }
+     if(dropZ != zPos){
+       zPos = dropZ;
+       InitTranslate();
+     }
+   }
+
    // Add the polycube to the pit
    BLOCKITEM cubes[MAX_CUBE];
    int nbCube;
    allPolyCube[pIdx].CopyCube(cubes,&nbCube);
    TransformCube(&newMatRot,cubes,nbCube,xPos,yPos,zPos);
 
-   for(int i=0;i<nbCube;i++)
+   for(int i=0;i<nbCube;i++){
+     // clamp di sicurezza: cubi fuori bounds vengono ignorati invece di
+     // corrompere il pit (causa pozzo malformato)
+     if(cubes[i].x < 0 || cubes[i].x >= thePit.GetWidth() ||
+        cubes[i].y < 0 || cubes[i].y >= thePit.GetHeight() ||
+        cubes[i].z < 0 || cubes[i].z >= thePit.GetDepth())
+       continue;
      thePit.AddCube( cubes[i].x , cubes[i].y , cubes[i].z );
+   }
 
    // Remove lines
    int nbLines = thePit.RemoveLines();
    BOOL pitEmpty = thePit.IsEmpty();
    if( nbLines > 0 ) {
+     soundManager->SetLineCount(nbLines);
      switch( setupManager->GetSoundType() ) {
        case SOUND_BLOCKOUT2:
          if( pitEmpty ) soundManager->PlayEmpty();
@@ -705,6 +757,8 @@ void Game::AddPolyCube() {
      if( score.nbCube >= cubePerLevel * (level+1) ) {
        level++;
        stepTime *= timeLevelFactor;
+       // 3DS: la colonna sonora accelera con il livello (+3% per livello)
+       soundManager->SetMusicTempo(1.0f + 0.03f * (float)level);
        switch( setupManager->GetSoundType() ) {
          case SOUND_BLOCKOUT2:
            soundManager->PlayLevel();
@@ -962,8 +1016,17 @@ void Game::StartSpark(BLOCKITEM *pos) {
                 (float)((pos->z) + 0.5f) * cSide + org.z,
                 1.0f , &rx,&ry,&rz,&rw);
 
+  /* Guardia: se il vertice proiettato finisce sul piano vicino (rw ~ 0) o
+     dietro la camera (rw < 0) - succede ruotando il pozzo con L+D-pad o
+     durante l'orbita del game over - le divisioni qui sotto danno x/y fuori
+     scala e il flash della spark diventa un triangolo gigante sullo
+     schermo. Si salta solo il flash: il suono del colpo resta. */
+  if (!(rw > 0.05f)) { startSpark = 0.0f; return; }
+
   int x = (int)(((-rx / rw) + 1.0f) * (float)pitView.width/2.0f)  + pitView.x;
   int y = (int)(((ry / rw) + 1.0f) * (float)pitView.height/2.0f) + pitView.y;
+  if (!(x >= -64 && x <= spriteView.width  + 64 &&
+        y >= -64 && y <= spriteView.height + 64)) { startSpark = 0.0f; return; }
   float pz = (float)pos->z;
   float pd = (float)thePit.GetDepth();
   float sw = (float)spriteView.width;
@@ -1190,6 +1253,8 @@ int Game::SelectPolyCube() {
   if( IsOverlap(&newMatRot,xPos,yPos,zPos) ) {
     score.gameTime = curTime - startGameTime;
     gameMode = GAME_OVER;
+    startEndTime = curTime + 0.5f;
+    soundManager->PlayOver();
     FullRepaint();
   }
 
@@ -1210,28 +1275,28 @@ void Game::ComputeHelp() {
 
   GLMatrix aiRot;
 
-  for(int i=nbAIMove-1;i>=0;i--) {
+   for(int i=nbAIMove-1;i>=0;i--) {
 
-    switch( AIMoves[i].rotate ) {
-       case 1:
-         aiRot.Multiply(&matRotOx);
-         break;
-       case 2:
-         aiRot.Multiply(&matRotOy);
-         break;
-       case 3:
-         aiRot.Multiply(&matRotOz);
-         break;
-       case 4:
-         aiRot.Multiply(&matRotNOx);
-         break;
-       case 5:
-         aiRot.Multiply(&matRotNOy);
-         break;
-       case 6:
-         aiRot.Multiply(&matRotNOz);
-         break;
-    }
+     switch( AIMoves[i].rotate ) {
+        case 1:
+          aiRot.Multiply(&matRotOx);
+          break;
+        case 2:
+          aiRot.Multiply(&matRotOy);
+          break;
+        case 3:
+          aiRot.Multiply(&matRotOz);
+          break;
+        case 4:
+          aiRot.Multiply(&matRotNOx);
+          break;
+        case 5:
+          aiRot.Multiply(&matRotNOy);
+          break;
+        case 6:
+          aiRot.Multiply(&matRotNOz);
+          break;
+     }
     tx += AIMoves[i].tx;
     ty += AIMoves[i].ty;
     tz += AIMoves[i].tz;
@@ -1310,6 +1375,7 @@ void Game::HandleKey(BYTE *keys) {
     if( gameMode==GAME_PLAYING ) {
       score.gameTime = curTime - startGameTime;
       gameMode=GAME_OVER;
+      startEndTime = curTime + 0.5f;
     }
     if( demoFlag || practiceFlag )
       exitValue = 2;

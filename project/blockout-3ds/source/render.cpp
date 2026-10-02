@@ -1,39 +1,35 @@
 /*
   File:        render.cpp
-  Description: Renderer software 3DS (citro2D) del port di BlockOut II.
+  Description: Renderer software 3DS (citro2D) del port di BlockOut II,
+               con la resa grafica del BlockOut originale per MS-DOS.
 
-  Il renderer riproduce il pipeline OpenGL originale:
+  Il renderer riproduce il pipeline OpenGL di BlockOut II:
 
    * proiezione gluPerspective(60.0, 1.0, 0.1, 10.0) applicata in software
-     (F_PROJ = 1/tan(30deg));
-   * matrice di vista gluLookAt(0,0,0 -> 0,0,10, up 0,1,0) identica
-     all'originale (quindi x del mondo e' riflessa sullo schermo);
-   * modello di illuminazione GL originale: ambient = materiale.ambient
-     (ambient globale 1,0), diffuse = materiale.diffuse * max(0,N.L),
-     luce in coordinate occhio (-15,10,10) (= (15,10,-10) transformata con
-     la matrice di vista dell'originale), nessun specular (shininess 0 nei
-     materiali del pozzo);
-   * primitive non illuminate (griglia, cornice nera, bordi dei cubi) usano
-     il colore AMBIENTE del materiale, come faceva SetMaterial() con
-     glColor4f(ambient) a GL_LIGHTING spento;
-   * depth-test disabilitato e ordine di disegno painter-style: i cubi del
-     pozzo sono disegnati nell'ordine di orderMatrix come nell'originale,
-     con il back-face culling in coordinate schermo;
-   * lo clipping verso il viewport del pozzo e' fatto in software (poligoni
-     Sutherland-Hodgman) perche' C2D non offre lo scissor test.
+     (F_PROJ = 1/tan(30deg)) su un viewport QUADRATO, come l'originale
+     (0.7197*W x 0.9596*H a 4:3 = quadrato): un viewport non quadrato con
+     l'aspect 1.0 della proiezione stirava il pozzo;
+   * matrice di vista gluLookAt(0,0,0 -> 0,0,10, up 0,1,0);
+   * illuminazione GL: ambient = materiale.ambient, diffuse =
+     materiale.diffuse * max(0,N.L), luce in coordinate occhio (-15,10,10);
+   * primitive non illuminate (griglia, bordi dei cubi, pezzo) nel colore
+     AMBIENTE del materiale, come SetMaterial() con GL_LIGHTING spento;
+   * painter-style nell'ordine di orderMatrix durante il gioco (come
+     l'originale, che disegnava senza z-buffer); nell'orbita di GAME OVER
+     l'originale accendeva lo z-buffer: qui le facce sono ordinate per
+     profondita' (l'ordine di orderMatrix vale solo per la camera fissa);
+   * clipping sul piano vicino (NEARZ) e sul rettangolo del pozzo.
+
+  Stile MS-DOS: fondo nero, reticolo verde a 1 pixel, pezzo in caduta a
+  solo filo bianco, strati colorati per profondita', colonna dei livelli a
+  sinistra e colonna delle informazioni a destra, font bitmap 8x8.
 
   Adattamenti richiesti dall'hardware 3DS:
 
    * C2D_DrawTriangle/Line/RectSolid al posto delle display list OpenGL;
-   * le "big edge" cilindriche del polycube (lineWidth>0) sono rese come
-     linee spesse C2D (mantengono il colore bianco/rosso);
-   * le texture (background, spark, sprite dei punteggi, stili MARBLE e
-     ARCADE) non sono disponibili: il rendering usa la geometria STYLE_CLASSIC
-     con i palette colori degli stili, e lo sfondo e' nero;
-   * stereoscopia parallela (off-axis): entrambi gli occhi condividono
-   * la stessa matrice di vista; la disparita' e' uno shift orizzontale
-   * proporzionale a (gConvZ/d - 1): zero a meta' pozzo, pop-out davanti,
-   * dentro dietro, con cap in pixel. Niente parallasse verticale.
+   * stereoscopia parallela: entrambi gli occhi condividono la vista, la
+     disparita' e' uno shift orizzontale proporzionale a (gConvZ/d - 1),
+     zero a meta' pozzo, con cap in pixel. Niente parallasse verticale.
 
   Program:     BlockOut / BlockOut 3DS
   Author:      Jean-Luc PONS
@@ -52,26 +48,36 @@
 #include <stdlib.h>
 
 #include "render.h"
+#include "ui.h"
 #include "Game.h"
 #include "Pit.h"
 #include "PolyCube.h"
+
+/* font della console di libctru (8x8, 256 caratteri CP437, 1 bit/pixel) */
+extern "C" const u8 default_font_bin[];
 
 /* ------------------------------------------------------------------ */
 /* Costanti del pipeline originale                                      */
 /* ------------------------------------------------------------------ */
 
 #define F_PROJ    1.7320508075688772f   /* 1 / tan(60/2 gradi), aspect 1.0 */
-#define LIGHT_EX -15.0f                 /* luce in coordinate occhio:      */
-#define LIGHT_EY  10.0f                 /* gluLookAt applicata a (15,10,-10)*/
+#define LIGHT_EX -15.0f
+#define LIGHT_EY  10.0f
 #define LIGHT_EZ  10.0f
 
-#define TOP_W     400.0f
-#define TOP_H     240.0f
-#define BOT_W     320.0f
-
-#define MAXOBJ    900        /* oggetti C2D per batch */
+/* Oggetti C2D per FRAME (il vertex buffer di citro2d si svuota solo a fine
+   frame): con due occhi, lo schermo basso e un pozzo pieno si superano
+   largamente i 4096 di default e le primitive in eccesso sparivano. */
+#define C2D_OBJECTS 24000
 
 #define STEREO_MAXD 14.0f    /* cap alla disparita' totale (pixel, L-R) */
+
+/* Layout dello schermo superiore (400x240) */
+#define PIT_X   44.0f
+#define PIT_Y    4.0f
+#define PIT_S  232.0f
+#define COL_X  284.0f        /* colonna informazioni: 284..396 */
+#define COL_W  112.0f
 
 /* ------------------------------------------------------------------ */
 /* Stato globale del renderer                                          */
@@ -80,107 +86,214 @@
 static C3D_RenderTarget *gLeft;
 static C3D_RenderTarget *gRight;
 static C3D_RenderTarget *gBottom;
-static C2D_Font          gFont;
-static C2D_TextBuf       gBuf;
-static int               gObjCount;
-static int               gScreen;          /* 0 = top, 1 = bottom */
-static float             gStereoPx = 7.5f;   /* disparita' di riferimento (px totali L-R) */
-static float             gEffPx = 7.5f;      /* effettiva per il frame (0 al game over) */
-static int               gEye;               /* occhio corrente: 0 = sx, 1 = dx */
-static float             gConvZ = 2.0f;      /* profondita' a disparita' zero (meta' pozzo) */
+static int               gScreen;            /* 0 = top, 1 = bottom */
+static float             gStereoPx = 10.0f;   /* disparita' di riferimento */
+static float             gEffPx = 10.0f;     /* effettiva per il frame */
+static int               gEye;               /* 0 = sx, 1 = dx */
+static float             gConvZ = 2.0f;      /* profondita' a disparita' zero */
 
-static float gV[16];                       /* matrice di vista corrente */
-static float gPitX, gPitY, gPitW, gPitH;   /* viewport pozzo, top-left */
+static float gPitX, gPitY, gPitW, gPitH;     /* viewport pozzo, top-left */
+static float gFlash = 0.0f;                  /* lampo del reticolo 1..0 */
+static int   gPieceFill = 0;
 
 /* ------------------------------------------------------------------ */
-/* Piccolo aiuto per i colori                                          */
+/* Colori                                                               */
 /* ------------------------------------------------------------------ */
 
 uint32_t r_color(int r, int g, int b, int a) {
   return (uint32_t)r | ((uint32_t)g << 8) | ((uint32_t)b << 16) | ((uint32_t)a << 24);
 }
 
-/* ------------------------------------------------------------------ */
-/* Primitivi 2D + batching                                              */
-/* ------------------------------------------------------------------ */
-
-static void flushIfNeeded(int n) {
-  gObjCount += n;
-  if (gObjCount >= MAXOBJ) { C2D_Flush(); gObjCount = 0; }
+static uint32_t scaleCol(uint32_t c, float k) {
+  int r = (int)((c & 0xFF) * k), g = (int)(((c >> 8) & 0xFF) * k), b = (int)(((c >> 16) & 0xFF) * k);
+  if (r > 255) r = 255;
+  if (g > 255) g = 255;
+  if (b > 255) b = 255;
+  return r_color(r, g, b, 255);
 }
+
+/* ------------------------------------------------------------------ */
+/* Primitivi 2D                                                         */
+/* ------------------------------------------------------------------ */
 
 void r_rect(float x, float y, float w, float h, uint32_t col) {
   if (w <= 0.0f || h <= 0.0f) return;
   C2D_DrawRectSolid(x, y, 0.5f, w, h, OPAQUE(col));
-  flushIfNeeded(1);
+}
+
+void r_rect_a(float x, float y, float w, float h, uint32_t col) {
+  if (w <= 0.0f || h <= 0.0f) return;
+  C2D_DrawRectSolid(x, y, 0.5f, w, h, col);
 }
 
 void r_line(float x0, float y0, float x1, float y1, float thick, uint32_t col) {
   uint32_t c = OPAQUE(col);
   C2D_DrawLine(x0, y0, c, x1, y1, c, thick, 0.5f);
-  flushIfNeeded(1);
 }
 
-static void parseText(const char *s, C2D_Text *t, float *w, float *h, float hpx, float *scale) {
-  if (!C2D_TextFontParseLine(t, gFont, gBuf, s, 0)) { *w = 0.0f; *h = 0.0f; *scale = 1.0f; return; }
-  float sx = 1.0f, sy = 1.0f;
-  C2D_TextGetDimensions(t, 1.0f, 1.0f, w, h);
-  if (*h > 0.0f) sy = hpx / *h;
-  sx = sy;
-  *scale = sx;
-  *w *= sx;
-  *h = hpx;
-  C2D_TextOptimize(t);
+void r_line_a(float x0, float y0, float x1, float y1, float thick, uint32_t col) {
+  C2D_DrawLine(x0, y0, col, x1, y1, col, thick, 0.5f);
 }
 
-float r_text_width(const char *str, float hpx) {
-  C2D_Text t; float w, h, sc;
-  parseText(str, &t, &w, &h, hpx, &sc);
-  return w;
+void r_tri_a(float x0, float y0, float x1, float y1, float x2, float y2, uint32_t col) {
+  C2D_DrawTriangle(x0, y0, col, x1, y1, col, x2, y2, col, 0.5f);
 }
 
-/* align: 0 sx (x = bordo sinistro), 1 centro (x = centro), 2 dx */
-void r_text(float x, float y, float hpx, uint32_t col, const char *str, int align, float ax) {
-  C2D_Text t; float w, h, sc;
-  parseText(str, &t, &w, &h, hpx, &sc);
-  if (w <= 0.0f) return;
-  float px = x;
-  if (align == 1) px = x - w * 0.5f;
-  else if (align == 2) px = x - w;
-  else if (align == 3) px = x + ax * w;   /* 3 = justify-like usato nei menu */
-  C2D_DrawText(&t, C2D_AlignLeft | C2D_WithColor, px, y, 0.5f, sc, sc, OPAQUE(col));
-  flushIfNeeded(1);
+void r_quad_a(const float *p, uint32_t col) {
+  C2D_DrawTriangle(p[0], p[1], col, p[2], p[3], col, p[4], p[5], col, 0.5f);
+  C2D_DrawTriangle(p[0], p[1], col, p[4], p[5], col, p[6], p[7], col, 0.5f);
+}
+
+/* ------------------------------------------------------------------ */
+/* Font bitmap                                                          */
+/* ------------------------------------------------------------------ */
+/* I 256 glifi 8x8 vengono copiati una volta in una texture 128x128 RGBA8
+   (bianco + alpha) nel formato a tile 8x8 "morton" della PICA; il colore
+   arriva dal tint. Filtro nearest + coordinate intere = pixel netti. */
+
+/* Una texture per colore: il tint delle immagini di citro2d non viene
+   applicato (il testo restava bianco in ogni modalita'), quindi ogni colore
+   richiesto ha la sua copia del font, creata alla prima richiesta. La UI
+   usa solo la palette EGA: poche texture da 64 KB. */
+#define FONT_CACHE 24
+static C3D_Tex           gFontTex[FONT_CACHE];
+static u32               gFontCol[FONT_CACHE];
+static int               gFontNb = 0;
+static Tex3DS_SubTexture gGlyph[256];
+static int               gFontOk = 0;
+
+static u32 morton8(u32 x, u32 y) {
+  u32 i = 0;
+  for (int b = 0; b < 3; b++) {
+    i |= ((x >> b) & 1u) << (2 * b);
+    i |= ((y >> b) & 1u) << (2 * b + 1);
+  }
+  return i;
+}
+
+static void fontInit(void) {
+  for (int c = 0; c < 256; c++) {
+    int gx = (c & 15) * 8, gy = (c >> 4) * 8;
+    Tex3DS_SubTexture *s = &gGlyph[c];
+    s->width  = 8;
+    s->height = 8;
+    s->left   = (float)gx / 128.0f;
+    s->right  = (float)(gx + 8) / 128.0f;
+    s->top    = 1.0f - (float)gy / 128.0f;
+    s->bottom = 1.0f - (float)(gy + 8) / 128.0f;
+  }
+  gFontNb = 0;
+  gFontOk = 1;
+}
+
+/* Texture del font nel colore col (packing C2D, alpha rispettato) */
+static C3D_Tex *fontTex(u32 col) {
+  for (int i = 0; i < gFontNb; i++) if (gFontCol[i] == col) return &gFontTex[i];
+  int slot = gFontNb;
+  if (slot >= FONT_CACHE) {             /* cache piena: ricicla l'ultima */
+    slot = FONT_CACHE - 1;
+    C3D_TexDelete(&gFontTex[slot]);
+  } else gFontNb++;
+  C3D_Tex *t = &gFontTex[slot];
+  if (!C3D_TexInit(t, 128, 128, GPU_RGBA8)) { if (slot == gFontNb - 1) gFontNb--; return NULL; }
+  /* RGBA8 della PICA: u32 = R<<24 | G<<16 | B<<8 | A */
+  u32 texel = ((col & 0xFF) << 24) | (((col >> 8) & 0xFF) << 16) |
+              (((col >> 16) & 0xFF) << 8) | ((col >> 24) & 0xFF);
+  u32 *px = (u32 *)t->data;
+  memset(px, 0, 128 * 128 * 4);
+  for (int c = 0; c < 256; c++) {
+    int gx = (c & 15) * 8, gy = (c >> 4) * 8;
+    for (int r = 0; r < 8; r++) {
+      u8 bits = default_font_bin[c * 8 + r];
+      for (int x = 0; x < 8; x++) {
+        if (!(bits & (0x80 >> x))) continue;
+        u32 tx = (u32)(gx + x);
+        u32 ty = (u32)(gy + r);            /* riga 0 della memoria = v 1.0 (alto) */
+        px[((ty >> 3) * 16 + (tx >> 3)) * 64 + morton8(tx & 7, ty & 7)] = texel;
+      }
+    }
+  }
+  C3D_TexFlush(t);
+  C3D_TexSetFilter(t, GPU_NEAREST, GPU_NEAREST);
+  gFontCol[slot] = col;
+  return t;
+}
+
+float r_print_w(const char *str, int scale) {
+  if (scale < 1) scale = 1;
+  return (float)(strlen(str) * FONT_W * scale);
+}
+
+static void printRaw(float x, float y, int scale, uint32_t col, const char *str, int align) {
+  if (!gFontOk || !str) return;
+  if (scale < 1) scale = 1;
+  C3D_Tex *tex = fontTex(col);
+  if (!tex) return;
+  float w = r_print_w(str, scale);
+  if (align == 1) x -= w * 0.5f;
+  else if (align == 2) x -= w;
+  x = floorf(x + 0.5f);
+  y = floorf(y + 0.5f);
+  float adv = (float)(FONT_W * scale);
+  for (const unsigned char *p = (const unsigned char *)str; *p; p++, x += adv) {
+    if (*p == ' ') continue;
+    C2D_Image img = { tex, &gGlyph[*p] };
+    C2D_DrawImageAt(img, x, y, 0.5f, NULL, (float)scale, (float)scale);
+  }
+}
+
+void r_print(float x, float y, int scale, uint32_t col, const char *str, int align) {
+  printRaw(x, y, scale, OPAQUE(col), str, align);
+}
+
+void r_print_a(float x, float y, int scale, uint32_t col, const char *str, int align) {
+  printRaw(x, y, scale, col, str, align);
+}
+
+void r_print_sh(float x, float y, int scale, uint32_t col, const char *str, int align) {
+  float o = (float)(scale < 1 ? 1 : scale);
+  printRaw(x + o, y + o, scale, OPAQUE(COL_BLACK), str, align);
+  printRaw(x, y, scale, OPAQUE(col), str, align);
+}
+
+void r_char(float x, float y, int scale, uint32_t col, unsigned char c) {
+  char s[2] = { (char)c, 0 };
+  printRaw(x, y, scale, OPAQUE(col), s, 0);
 }
 
 int r_screen_w(void) { return (gScreen == 0) ? 400 : 320; }
 int r_is_bottom(void) { return gScreen; }
+int r_eye(void) { return gEye; }
+/* disparita' effettiva: valore scelto (ZR / Setup) scalato dal cursore 3D */
+float r_stereo_px(void) { return gStereoPx * osGet3DSliderState(); }
 
 /* ------------------------------------------------------------------ */
 /* Frame                                                                */
 /* ------------------------------------------------------------------ */
 
 void render_init(void) {
-  gfxSet3D(true);                        /* stereoscopia: prima di C3D_Init */
-  C3D_Init(C3D_DEFAULT_CMDBUF_SIZE);
-  C2D_Init(C2D_DEFAULT_MAX_OBJECTS);
+  gfxSet3D(true);
+  C3D_Init(C3D_DEFAULT_CMDBUF_SIZE * 2);
+  C2D_Init(C2D_OBJECTS);
   C2D_Prepare();
   gLeft   = C2D_CreateScreenTarget(GFX_TOP, GFX_LEFT);
   gRight  = C2D_CreateScreenTarget(GFX_TOP, GFX_RIGHT);
   gBottom = C2D_CreateScreenTarget(GFX_BOTTOM, GFX_LEFT);
-  gFont   = C2D_FontLoadSystem(CFG_REGION_USA);
-  gBuf    = C2D_TextBufNew(8192);
-  gObjCount = 0;
+  fontInit();
   gScreen = 0;
 }
 
 void render_exit(void) {
-  if (gBuf) { C2D_TextBufDelete(gBuf); gBuf = NULL; }
-  if (gFont) { C2D_FontFree(gFont); gFont = NULL; }
+  for (int i = 0; i < gFontNb; i++) C3D_TexDelete(&gFontTex[i]);
+  gFontNb = 0;
+  gFontOk = 0;
   C2D_Fini();
   C3D_Fini();
 }
 
 void render_set_stereo(float px) { gStereoPx = px; }
+void render_set_piece_fill(int on) { gPieceFill = on; }
+int  render_get_piece_fill(void) { return gPieceFill; }
 
 void render_clear(uint32_t col) {
   col = OPAQUE(col);
@@ -188,102 +301,46 @@ void render_clear(uint32_t col) {
   C2D_TargetClear(gLeft, col);
   C2D_TargetClear(gRight, col);
   C2D_TargetClear(gBottom, col);
-  C2D_TextBufClear(gBuf);
-  gObjCount = 0;
 }
 
 void render_begin_top(int eye) {
   gScreen = 0;
+  gEye = eye ? 1 : 0;
   C2D_SceneBegin(eye ? gRight : gLeft);
-  gObjCount = 0;
 }
 
 void render_begin_bottom(void) {
   gScreen = 1;
+  gEye = 0;
   C2D_SceneBegin(gBottom);
-  gObjCount = 0;
 }
 
-void render_flush(void) { C2D_Flush(); gObjCount = 0; }
-
-/* Diagnostica di avvio: barre colorate + testo su entrambi gli schermi.
-   Se l'utente vede le barre, il pipeline C3D/C2D funziona; se non vede
-   nulla, il problema e' altrove (app non avviata / framebuffer). */
-void render_boot_test(void) {
-  render_clear(COL_BG);
-  uint32_t red = r_color(255, 0, 0, 255), grn = r_color(0, 255, 0, 255);
-  uint32_t blu = r_color(0, 0, 255, 255), wht = r_color(255, 255, 255, 255);
-
-  render_begin_top(0);
-  r_rect(0, 0, 40, 20, red);
-  r_rect(40, 0, 40, 20, grn);
-  r_rect(80, 0, 40, 20, blu);
-  r_text(150, 4, 18, wht, "BOOT OK", 0, 0);
-  render_flush();
-
-  render_begin_top(1);
-  r_rect(0, 0, 40, 20, red);
-  r_rect(40, 0, 40, 20, grn);
-  r_rect(80, 0, 40, 20, blu);
-  r_text(150, 4, 18, wht, "BOOT OK", 0, 0);
-  render_flush();
-
-  render_begin_bottom();
-  r_rect(0, 0, 320, 10, wht);
-  r_text(160.0f, 110.0f, 20.0f, grn, "BlockOut 3DS", 1, 0);
-  render_flush();
-
-  render_swap(1);
-}
+void render_flush(void) { C2D_Flush(); }
 
 void render_swap(int waitVsync) {
   (void)waitVsync;
   gScreen = 0;
   C2D_Flush();
-  /* C3D_FrameEnd esegue gia' il flush dei comandi e lo swap dei framebuffer
-     (gfx3d non esiste piu': non servono gfxFlushBuffers/gfxScreenSwapBuffers) */
   C3D_FrameEnd(0);
 }
 
 /* ------------------------------------------------------------------ */
-/* Matrici / proiezione                                                */
-/* ------------------------------------------------------------------ */
-
-/* Vista per un occhio: stereo parallelo (off-axis). Entrambi gli occhi
-   condividono la stessa matrice di vista; la disparita' e' applicata in
-   projM come shift di schermo. Il terzo parametro e' ignorato (compat). */
-static void buildEyeView(const float *base, int eye, float unused) {
-  (void)unused;
-  memcpy(gV, base, 16 * sizeof(float));
-  gEye = eye ? 1 : 0;
-}
-
-/* Colore ambiente del materiale (primitive non illuminate) */
-static uint32_t ambColor(const GLMATERIAL *mat) {
-  int ri = (int)(mat->Ambient.r * 255.0f); if (ri < 0) ri = 0; if (ri > 255) ri = 255;
-  int gi = (int)(mat->Ambient.g * 255.0f); if (gi < 0) gi = 0; if (gi > 255) gi = 255;
-  int bi = (int)(mat->Ambient.b * 255.0f); if (bi < 0) bi = 0; if (bi > 255) bi = 255;
-  /* alpha ignorato: nell'originale SetMaterial() usava glColor4f(ambient)
-     e il blending era disabilitato; si usa sempre alpha pieno */
-  return r_color(ri, gi, bi, 255);
-}
-
-/* ------------------------------------------------------------------ */
-/* Clipping 2D delle primitive contro il viewport del pozzo            */
+/* Clipping 2D contro il viewport del pozzo                            */
 /* ------------------------------------------------------------------ */
 
 typedef struct { float x, y; uint32_t c; } V2C;
 
-/* Clippa un poligono (poli, n) contro il rettangolo del viewport;
-   restituisce il numero di vertici clippati (>=3) o 0 */
+/* Sutherland-Hodgman contro il rettangolo; t e' clampato in [0,1]: con un
+   lato quasi parallelo al bordo il roundoff lo farebbe esplodere e il
+   vertice finirebbe a 1e12 ("striscia gigante" sulla PICA). */
 static int clipPoly(const V2C *poly, int n, V2C *out,
                     float x0, float y0, float x1, float y1) {
-  V2C bufA[64], bufB[64];
+  V2C bufA[40], bufB[40];
   int na = 0;
-  for (int i = 0; i < n && na < 64; i++) bufA[na++] = poly[i];
-  float edges[4] = { x0, y1, x1, y0 };   /* left, bottom, right, top */
-  int axis[4]    = { 0, 1, 0, 1 };       /* 0 = x, 1 = y */
-  int keepLess[4]= { 0, 1, 1, 0 };       /* 1 = tenere <= edge */
+  for (int i = 0; i < n && na < 40; i++) bufA[na++] = poly[i];
+  const float edges[4] = { x0, y1, x1, y0 };
+  const int axis[4]    = { 0, 1, 0, 1 };
+  const int keepLess[4]= { 0, 1, 1, 0 };
   for (int p = 0; p < 4; p++) {
     float e = edges[p];
     int ax = axis[p];
@@ -291,23 +348,16 @@ static int clipPoly(const V2C *poly, int n, V2C *out,
     for (int i = 0; i < na; i++) {
       V2C a = bufA[i];
       V2C b = bufA[(i + 1) % na];
-      float va = (ax == 0) ? a.x : a.y;
-      float vb = (ax == 0) ? b.x : b.y;
+      float va = ax ? a.y : a.x;
+      float vb = ax ? b.y : b.x;
       int ia = keepLess[p] ? (va <= e) : (va >= e);
       int ib = keepLess[p] ? (vb <= e) : (vb >= e);
-      if (ia) {
-        if (nd < 64) { bufB[nd++] = a; }
-        if (ib != ia && nd < 64) {
-          float t = (e - va) / (vb - va);
-          V2C m;
-          m.x = a.x + t * (b.x - a.x);
-          m.y = a.y + t * (b.y - a.y);
-          m.c = a.c;
-          bufB[nd++] = m;
-        }
-      } else if (ib) {
-        if (nd < 64) {
-          float t = (e - va) / (vb - va);
+      if (ia && nd < 40) bufB[nd++] = a;
+      if (ia != ib && nd < 40) {
+        float denom = vb - va;
+        if (denom != 0.0f) {
+          float t = (e - va) / denom;
+          if (t < 0.0f) t = 0.0f; else if (t > 1.0f) t = 1.0f;
           V2C m;
           m.x = a.x + t * (b.x - a.x);
           m.y = a.y + t * (b.y - a.y);
@@ -324,48 +374,13 @@ static int clipPoly(const V2C *poly, int n, V2C *out,
   return na;
 }
 
-/* Triangolo con clipping e ventaglio */
-static void drawTriClip(float x0, float y0, uint32_t c0,
-                        float x1, float y1, uint32_t c1,
-                        float x2, float y2, uint32_t c2) {
-  V2C poly[3] = { {x0,y0,c0}, {x1,y1,c1}, {x2,y2,c2} };
-  V2C out[32];
-  int n = clipPoly(poly, 3, out, gPitX - 1.0f, gPitY - 1.0f,
-                   gPitX + gPitW + 1.0f, gPitY + gPitH + 1.0f);
-  if (n < 3) return;
-  for (int i = 1; i < n - 1; i++) {
-    C2D_DrawTriangle(out[0].x, out[0].y, out[0].c,
-                     out[i].x, out[i].y, out[i].c,
-                     out[i+1].x, out[i+1].y, out[i+1].c, 0.5f);
-    flushIfNeeded(1);
-  }
-}
-
-/* Quadrilatero con clipping */
-static void drawQuadClip(float x0, float y0, uint32_t c0,
-                         float x1, float y1, uint32_t c1,
-                         float x2, float y2, uint32_t c2,
-                         float x3, float y3, uint32_t c3) {
-  V2C poly[4] = { {x0,y0,c0}, {x1,y1,c1}, {x2,y2,c2}, {x3,y3,c3} };
-  V2C out[32];
-  int n = clipPoly(poly, 4, out, gPitX - 1.0f, gPitY - 1.0f,
-                   gPitX + gPitW + 1.0f, gPitY + gPitH + 1.0f);
-  if (n < 3) return;
-  for (int i = 1; i < n - 1; i++) {
-    C2D_DrawTriangle(out[0].x, out[0].y, out[0].c,
-                     out[i].x, out[i].y, out[i].c,
-                     out[i+1].x, out[i+1].y, out[i+1].c, 0.5f);
-    flushIfNeeded(1);
-  }
-}
-
 /* Linea con clipping segmento-rettangolo (Liang-Barsky) */
 static void drawLineClip(float x0, float y0, uint32_t c0,
                          float x1, float y1, uint32_t c1, float thick) {
   float dx = x1 - x0, dy = y1 - y0;
   float t0 = 0.0f, t1 = 1.0f;
-  float L = gPitX - 1.0f, R = gPitX + gPitW + 1.0f;
-  float T = gPitY - 1.0f, B = gPitY + gPitH + 1.0f;
+  float L = gPitX, R = gPitX + gPitW;
+  float T = gPitY, B = gPitY + gPitH;
   float p[4] = { -dx, dx, -dy, dy };
   float q[4] = { x0 - L, R - x0, y0 - T, B - y0 };
   for (int i = 0; i < 4; i++) {
@@ -377,25 +392,18 @@ static void drawLineClip(float x0, float y0, uint32_t c0,
       else             { if (r < t0) return; if (r < t1) t1 = r; }
     }
   }
-  float ax = x0 + t0 * dx, ay = y0 + t0 * dy;
-  float bx = x0 + t1 * dx, by = y0 + t1 * dy;
-  C2D_DrawLine(ax, ay, c0, bx, by, c1, thick, 0.5f);
-  flushIfNeeded(1);
+  C2D_DrawLine(x0 + t0 * dx, y0 + t0 * dy, c0, x0 + t1 * dx, y0 + t1 * dy, c1, thick, 0.5f);
 }
 
 /* ------------------------------------------------------------------ */
-/* Modello (matrice globale) + matrice vista/modello combinata          */
+/* Matrici                                                              */
 /* ------------------------------------------------------------------ */
 
 static float gMV[16];        /* view * model  (column-major) */
-static float gView[16];      /* view corrente (per il modello) */
+static float gView[16];      /* vista corrente */
 
 static void setModel(const float *m) {
-  if (!m) {
-    for (int i = 0; i < 16; i++) gMV[i] = gView[i];
-    return;
-  }
-  /* gMV = gView * m */
+  if (!m) { memcpy(gMV, gView, sizeof(gMV)); return; }
   for (int c = 0; c < 4; c++)
     for (int r = 0; r < 4; r++) {
       float s = 0.0f;
@@ -404,27 +412,51 @@ static void setModel(const float *m) {
     }
 }
 
-/* ---- sostituisce le funzioni che usavano gV con gMV ---------------- */
+#define NEARZ 0.1f   /* gluPerspective(60, 1, 0.1, FAR) */
 
-#undef gV_use
-static int projM(float wx, float wy, float wz, float *sx, float *sy) {
-  float ex = gMV[0] * wx + gMV[4] * wy + gMV[8]  * wz + gMV[12];
-  float ey = gMV[1] * wx + gMV[5] * wy + gMV[9]  * wz + gMV[13];
-  float ez = gMV[2] * wx + gMV[6] * wy + gMV[10] * wz + gMV[14];
+typedef struct { float x, y, z; uint32_t c; } EV;
+
+static int clipNear(const EV *poly, int n, EV *out) {
+  int nd = 0;
+  for (int i = 0; i < n; i++) {
+    EV a = poly[i];
+    EV b = poly[(i + 1 == n) ? 0 : i + 1];
+    int ka = (-a.z >= NEARZ), kb = (-b.z >= NEARZ);
+    if (ka != kb) {
+      float dd = a.z - b.z;
+      if (dd != 0.0f && nd < 16) {
+        float t = (NEARZ + a.z) / dd;
+        if (t < 0.0f) t = 0.0f; else if (t > 1.0f) t = 1.0f;
+        EV m;
+        m.x = a.x + t * (b.x - a.x);
+        m.y = a.y + t * (b.y - a.y);
+        m.z = a.z + t * (b.z - a.z);
+        m.c = a.c;
+        out[nd++] = m;
+      }
+    }
+    if (kb && nd < 16) out[nd++] = b;
+  }
+  return nd;
+}
+
+static int projEye(float ex, float ey, float ez, float *sx, float *sy) {
   float d = -ez;
-  if (d < 0.015f) return 0;
+  if (!(d >= NEARZ * 0.999f)) return 0;
   float nx = F_PROJ * ex / d;
   float ny = F_PROJ * ey / d;
   float x = gPitX + (nx * 0.5f + 0.5f) * gPitW;
   float y = gPitY + (0.5f - ny * 0.5f) * gPitH;
-  /* stereoscopia parallela: shift orizzontale a convergenza gConvZ.
-     Stessa y per entrambi gli occhi -> zero parallasse verticale. */
-  float disp = gEffPx * (gConvZ / d - 1.0f);
+  /* disparita' positiva = dietro lo schermo = immagini non incrociate:
+     l'occhio sinistro vede il punto piu' a sinistra, il destro piu' a
+     destra (prima il segno era invertito e il pozzo si vedeva "al
+     rovescio": fondo davanti, bocca dietro) */
+  float disp = gEffPx * (1.0f - gConvZ / d);
   if (disp > STEREO_MAXD) disp = STEREO_MAXD;
   else if (disp < -STEREO_MAXD) disp = -STEREO_MAXD;
   x += (gEye ? 0.5f : -0.5f) * disp;
-  if (x < -6000.0f) x = -6000.0f; else if (x > 6000.0f) x = 6000.0f;
-  if (y < -6000.0f) y = -6000.0f; else if (y > 6000.0f) y = 6000.0f;
+  if (!(x > -1e6f && x < 1e6f)) x = 0.0f;
+  if (!(y > -1e6f && y < 1e6f)) y = 0.0f;
   *sx = x; *sy = y;
   return 1;
 }
@@ -441,8 +473,60 @@ static void eyePoint(float wx, float wy, float wz, float *ox, float *oy, float *
   *oz = gMV[2] * wx + gMV[6] * wy + gMV[10] * wz + gMV[14];
 }
 
-static uint32_t shadeM(float wx, float wy, float wz,
-                       float nx, float ny, float nz,
+/* Poligono gia' in coordinate OCCHIO: near-clip, proiezione, clip 2D */
+static void drawPolyE(const EV *poly, int n) {
+  EV clip[16];
+  int m = clipNear(poly, n, clip);
+  if (m < 3) return;
+  V2C scr[16];
+  int ns = 0;
+  for (int i = 0; i < m; i++) {
+    float sx, sy;
+    if (!projEye(clip[i].x, clip[i].y, clip[i].z, &sx, &sy)) continue;
+    scr[ns].x = sx; scr[ns].y = sy; scr[ns].c = clip[i].c; ns++;
+  }
+  if (ns < 3) return;
+  V2C out[40];
+  int k = clipPoly(scr, ns, out, gPitX, gPitY, gPitX + gPitW, gPitY + gPitH);
+  for (int i = 1; i < k - 1; i++)
+    C2D_DrawTriangle(out[0].x, out[0].y, out[0].c,
+                     out[i].x, out[i].y, out[i].c,
+                     out[i + 1].x, out[i + 1].y, out[i + 1].c, 0.5f);
+}
+
+/* Poligono in coordinate MONDO */
+static void drawPolyW(const float v[][3], int n, uint32_t col) {
+  if (n < 3 || n > 8) return;
+  EV poly[8];
+  for (int i = 0; i < n; i++) {
+    eyePoint(v[i][0], v[i][1], v[i][2], &poly[i].x, &poly[i].y, &poly[i].z);
+    poly[i].c = col;
+  }
+  drawPolyE(poly, n);
+}
+
+/* Segmento in coordinate MONDO: near-clip, proiezione, clip 2D */
+static void drawLineW(float ax, float ay, float az, float bx, float by, float bz,
+                      uint32_t col, float thick) {
+  float ax0, ay0, az0, bx0, by0, bz0;
+  eyePoint(ax, ay, az, &ax0, &ay0, &az0);
+  eyePoint(bx, by, bz, &bx0, &by0, &bz0);
+  float da = -az0, db = -bz0;
+  float tlo = 0.0f, thi = 1.0f;
+  if (da < NEARZ || db < NEARZ) {
+    float dd = db - da;
+    if (dd == 0.0f) return;
+    float t = (NEARZ - da) / dd;
+    if (dd > 0.0f) { if (t > tlo) tlo = t; } else { if (t < thi) thi = t; }
+    if (!(tlo < thi)) return;
+  }
+  float sx0, sy0, sx1, sy1;
+  if (!projEye(ax0 + tlo * (bx0 - ax0), ay0 + tlo * (by0 - ay0), az0 + tlo * (bz0 - az0), &sx0, &sy0)) return;
+  if (!projEye(ax0 + thi * (bx0 - ax0), ay0 + thi * (by0 - ay0), az0 + thi * (bz0 - az0), &sx1, &sy1)) return;
+  drawLineClip(sx0, sy0, col, sx1, sy1, col, thick);
+}
+
+static uint32_t shadeM(float wx, float wy, float wz, float nx, float ny, float nz,
                        const GLMATERIAL *mat, int alpha) {
   float ex, ey, ez; eyePoint(wx, wy, wz, &ex, &ey, &ez);
   float lx = LIGHT_EX - ex, ly = LIGHT_EY - ey, lz = LIGHT_EZ - ez;
@@ -451,71 +535,69 @@ static uint32_t shadeM(float wx, float wy, float wz,
   float nex, ney, nez; eyeNormalM(nx, ny, nz, &nex, &ney, &nez);
   float nl = nex * lx + ney * ly + nez * lz;
   if (nl < 0.0f) nl = 0.0f;
-  float r = mat->Ambient.r + mat->Diffuse.r * nl;
-  float g = mat->Ambient.g + mat->Diffuse.g * nl;
-  float b = mat->Ambient.b + mat->Diffuse.b * nl;
-  int ri = (int)(r * 255.0f); if (ri < 0) ri = 0; if (ri > 255) ri = 255;
-  int gi = (int)(g * 255.0f); if (gi < 0) gi = 0; if (gi > 255) gi = 255;
-  int bi = (int)(b * 255.0f); if (bi < 0) bi = 0; if (bi > 255) bi = 255;
-  int ai = alpha; if (ai < 0) ai = 0; if (ai > 255) ai = 255;
-  return r_color(ri, gi, bi, ai);
+  int ri = (int)((mat->Ambient.r + mat->Diffuse.r * nl) * 255.0f);
+  int gi = (int)((mat->Ambient.g + mat->Diffuse.g * nl) * 255.0f);
+  int bi = (int)((mat->Ambient.b + mat->Diffuse.b * nl) * 255.0f);
+  if (ri > 255) ri = 255;
+  if (gi > 255) gi = 255;
+  if (bi > 255) bi = 255;
+  if (ri < 0) ri = 0;
+  if (gi < 0) gi = 0;
+  if (bi < 0) bi = 0;
+  return r_color(ri, gi, bi, alpha);
 }
 
-/* Back-face culling in coordinate occhio: la faccia e' visibile se la sua
-   normale punta verso la camera (dot(N, -P) > 0) */
-static int faceVisible(float wx, float wy, float wz,
-                       float nx, float ny, float nz) {
+static uint32_t ambColor(const GLMATERIAL *mat) {
+  int ri = (int)(mat->Ambient.r * 255.0f), gi = (int)(mat->Ambient.g * 255.0f);
+  int bi = (int)(mat->Ambient.b * 255.0f);
+  if (ri > 255) ri = 255;
+  if (gi > 255) gi = 255;
+  if (bi > 255) bi = 255;
+  return r_color(ri < 0 ? 0 : ri, gi < 0 ? 0 : gi, bi < 0 ? 0 : bi, 255);
+}
+
+/* Back-face culling in coordinate occhio */
+static int faceVisible(float wx, float wy, float wz, float nx, float ny, float nz) {
   float ex, ey, ez; eyePoint(wx, wy, wz, &ex, &ey, &ez);
   float nex, ney, nez; eyeNormalM(nx, ny, nz, &nex, &ney, &nez);
   return (nex * -ex + ney * -ey + nez * -ez) > 0.0f;
 }
 
 /* ------------------------------------------------------------------ */
-/* Geometria del pozzo (STYLE_CLASSIC, vertici identici all'originale) */
+/* Geometria del cubo                                                   */
 /* ------------------------------------------------------------------ */
 
-/* Face del cubo: 6 facce, each con normal + 4 vertici (coordinate 0/1) */
 static const float cubeFaceV[6][4][3] = {
-  { {0,1,0},{1,1,0},{1,0,0},{0,0,0} },   /* F1 n=(0,0,-1) */
-  { {1,1,0},{1,1,1},{1,0,1},{1,0,0} },   /* F2 n=(1,0,0)  */
-  { {1,1,1},{0,1,1},{0,0,1},{1,0,1} },   /* F3 n=(0,0,1)  */
-  { {0,1,1},{0,1,0},{0,0,0},{0,0,1} },   /* F4 n=(-1,0,0) */
-  { {1,0,0},{1,0,1},{0,0,1},{0,0,0} },   /* F5 n=(0,-1,0) */
-  { {0,1,1},{1,1,1},{1,1,0},{0,1,0} }    /* F6 n=(0,1,0)  */
+  { {0,1,0},{1,1,0},{1,0,0},{0,0,0} },   /* n=(0,0,-1) */
+  { {1,1,0},{1,1,1},{1,0,1},{1,0,0} },   /* n=(1,0,0)  */
+  { {1,1,1},{0,1,1},{0,0,1},{1,0,1} },   /* n=(0,0,1)  */
+  { {0,1,1},{0,1,0},{0,0,0},{0,0,1} },   /* n=(-1,0,0) */
+  { {1,0,0},{1,0,1},{0,0,1},{0,0,0} },   /* n=(0,-1,0) */
+  { {0,1,1},{1,1,1},{1,1,0},{0,1,0} }    /* n=(0,1,0)  */
 };
 static const float cubeFaceN[6][3] = {
   {0,0,-1}, {1,0,0}, {0,0,1}, {-1,0,0}, {0,-1,0}, {0,1,0}
 };
 
-/* Spigoli del cubo (lcubeList[12]), coordinate 0/1 */
+/* Spigoli del cubo (lcubeList[12]) */
 static const int cubeEdgeV[12][2][3] = {
   { {0,1,0},{1,1,0} }, { {1,1,0},{1,0,0} }, { {1,0,0},{0,0,0} }, { {0,0,0},{0,1,0} },
   { {0,1,0},{0,1,1} }, { {1,1,0},{1,1,1} }, { {1,0,0},{1,0,1} }, { {0,0,0},{0,0,1} },
   { {0,1,1},{1,1,1} }, { {1,1,1},{1,0,1} }, { {0,0,1},{1,0,1} }, { {0,0,1},{0,1,1} }
 };
 
-static void cornerWorld(float baseX, float baseY, float baseZ, float cSide,
-                        int cx, int cy, int cz, const float *v,
-                        float *wx, float *wy, float *wz) {
-  *wx = baseX + ((float)cx + v[0]) * cSide;
-  *wy = baseY + ((float)cy + v[1]) * cSide;
-  *wz = baseZ + ((float)cz + v[2]) * cSide;
-}
+/* ------------------------------------------------------------------ */
+/* Pozzo                                                                */
+/* ------------------------------------------------------------------ */
 
-/* Cornice nera attorno all'apertura del pozzo (sideList: 8 triangoli,
-   stessi vertici di Pit::CreateSide) */
+/* Cornice nera attorno all'apertura (sideList di Pit::CreateSide) */
 static void drawSideRing(Pit *pit) {
   uint32_t blk = r_color(0, 0, 0, 255);
   VERTEX org = pit->GetOrigin();
   float ox = org.x, oy = org.y, oz = org.z;
   float fW = pit->GetFWidth(), fH = pit->GetFHeight(), cS = pit->GetCubeSide();
-  float rx0 = ox - cS, ry0 = oy - cS;
-  float rx1 = ox + fW + cS, ry1 = oy + fH + cS;
-
-  /* 8 triangoli, nell'ordine e con le coordinate esatte della sideList
-     originale (Pit::CreateSide): vertici 0..7 del rettangolo interno
-     (ox,oy)..(ox+fW,oy+fH) espanso di cubeSide */
-  float pts[8][3][2] = {
+  float rx0 = ox - cS, ry0 = oy - cS, rx1 = ox + fW + cS, ry1 = oy + fH + cS;
+  const float pts[8][3][2] = {
     { {ox + fW, oy + fH}, {rx0, ry1}, {rx1, ry1} },
     { {ox + fW, oy + fH}, {ox,  oy + fH}, {rx0, ry1} },
     { {ox,      oy + fH}, {rx0, ry0}, {rx0, ry1} },
@@ -525,709 +607,609 @@ static void drawSideRing(Pit *pit) {
     { {rx1,     ry0},     {ox + fW, oy}, {ox + fW, oy + fH} },
     { {rx1,     ry0},     {ox + fW, oy + fH}, {rx1, ry1} },
   };
-
   for (int t = 0; t < 8; t++) {
-    float sa[2], sb[2], sc[2];
-    if (!projM(pts[t][0][0], pts[t][0][1], oz, sa, sa + 1)) continue;
-    if (!projM(pts[t][1][0], pts[t][1][1], oz, sb, sb + 1)) continue;
-    if (!projM(pts[t][2][0], pts[t][2][1], oz, sc, sc + 1)) continue;
-    drawTriClip(sa[0], sa[1], blk, sb[0], sb[1], blk, sc[0], sc[1], blk);
+    float tri[3][3];
+    for (int k = 0; k < 3; k++) { tri[k][0] = pts[t][k][0]; tri[k][1] = pts[t][k][1]; tri[k][2] = oz; }
+    drawPolyW(tri, 3, blk);
   }
 }
 
-/* 5 facce del fondo del pozzo (backList CLASSIC) illuminate backMaterial */
+/* 5 facce interne del pozzo (backList CLASSIC) */
 static void drawBack(Pit *pit, GLMATERIAL *backMat) {
   VERTEX org = pit->GetOrigin();
   float ox = org.x, oy = org.y, oz = org.z;
   float fW = pit->GetFWidth(), fH = pit->GetFHeight(), fD = pit->GetFDepth();
-
-  struct F { float n[3]; float v[4][3]; };
-  F faces[5];
-  /* Vertici identici a Pit::CreateBack (STYLE_CLASSIC) */
-  faces[0].n[0]=1; faces[0].n[1]=0; faces[0].n[2]=0;
-  faces[0].v[0][0]=ox;      faces[0].v[0][1]=oy+fH;  faces[0].v[0][2]=oz;
-  faces[0].v[1][0]=ox;      faces[0].v[1][1]=oy+fH;  faces[0].v[1][2]=oz+fD;
-  faces[0].v[2][0]=ox;      faces[0].v[2][1]=oy;     faces[0].v[2][2]=oz+fD;
-  faces[0].v[3][0]=ox;      faces[0].v[3][1]=oy;     faces[0].v[3][2]=oz;
-
-  faces[1].n[0]=0; faces[1].n[1]=-1; faces[1].n[2]=0;
-  faces[1].v[0][0]=ox;      faces[1].v[0][1]=oy+fH;  faces[1].v[0][2]=oz;
-  faces[1].v[1][0]=ox+fW;   faces[1].v[1][1]=oy+fH;  faces[1].v[1][2]=oz;
-  faces[1].v[2][0]=ox+fW;   faces[1].v[2][1]=oy+fH;  faces[1].v[2][2]=oz+fD;
-  faces[1].v[3][0]=ox;      faces[1].v[3][1]=oy+fH;  faces[1].v[3][2]=oz+fD;
-
-  faces[2].n[0]=-1; faces[2].n[1]=0; faces[2].n[2]=0;
-  faces[2].v[0][0]=ox+fW;   faces[2].v[0][1]=oy+fH;  faces[2].v[0][2]=oz+fD;
-  faces[2].v[1][0]=ox+fW;   faces[2].v[1][1]=oy+fH;  faces[2].v[1][2]=oz;
-  faces[2].v[2][0]=ox+fW;   faces[2].v[2][1]=oy;     faces[2].v[2][2]=oz;
-  faces[2].v[3][0]=ox+fW;   faces[2].v[3][1]=oy;     faces[2].v[3][2]=oz+fD;
-
-  faces[3].n[0]=0; faces[3].n[1]=1; faces[3].n[2]=0;
-  faces[3].v[0][0]=ox+fW;   faces[3].v[0][1]=oy;     faces[3].v[0][2]=oz;
-  faces[3].v[1][0]=ox;      faces[3].v[1][1]=oy;     faces[3].v[1][2]=oz;
-  faces[3].v[2][0]=ox;      faces[3].v[2][1]=oy;     faces[3].v[2][2]=oz+fD;
-  faces[3].v[3][0]=ox+fW;   faces[3].v[3][1]=oy;     faces[3].v[3][2]=oz+fD;
-
-  faces[4].n[0]=0; faces[4].n[1]=0; faces[4].n[2]=-1;
-  faces[4].v[0][0]=ox;      faces[4].v[0][1]=oy+fH;  faces[4].v[0][2]=oz+fD;
-  faces[4].v[1][0]=ox+fW;   faces[4].v[1][1]=oy+fH;  faces[4].v[1][2]=oz+fD;
-  faces[4].v[2][0]=ox+fW;   faces[4].v[2][1]=oy;     faces[4].v[2][2]=oz+fD;
-  faces[4].v[3][0]=ox;      faces[4].v[3][1]=oy;     faces[4].v[3][2]=oz+fD;
-
+  const float n[5][3] = { {1,0,0}, {0,-1,0}, {-1,0,0}, {0,1,0}, {0,0,-1} };
+  const float v[5][4][3] = {
+    { {ox, oy+fH, oz}, {ox, oy+fH, oz+fD}, {ox, oy, oz+fD}, {ox, oy, oz} },
+    { {ox, oy+fH, oz}, {ox+fW, oy+fH, oz}, {ox+fW, oy+fH, oz+fD}, {ox, oy+fH, oz+fD} },
+    { {ox+fW, oy+fH, oz+fD}, {ox+fW, oy+fH, oz}, {ox+fW, oy, oz}, {ox+fW, oy, oz+fD} },
+    { {ox+fW, oy, oz}, {ox, oy, oz}, {ox, oy, oz+fD}, {ox+fW, oy, oz+fD} },
+    { {ox, oy+fH, oz+fD}, {ox+fW, oy+fH, oz+fD}, {ox+fW, oy, oz+fD}, {ox, oy, oz+fD} },
+  };
   for (int f = 0; f < 5; f++) {
-    float cxm = 0, cym = 0, czm = 0;
-    for (int k = 0; k < 4; k++) { cxm += faces[f].v[k][0]; cym += faces[f].v[k][1]; czm += faces[f].v[k][2]; }
-    cxm *= 0.25f; cym *= 0.25f; czm *= 0.25f;
-    if (!faceVisible(cxm, cym, czm, faces[f].n[0], faces[f].n[1], faces[f].n[2])) continue;
-    float sx[4], sy[4];
-    int ok = 1;
-    for (int k = 0; k < 4; k++) {
-      if (!projM(faces[f].v[k][0], faces[f].v[k][1], faces[f].v[k][2], &sx[k], &sy[k])) { ok = 0; break; }
-    }
-    if (!ok) continue;
-    uint32_t c = shadeM(cxm, cym, czm, faces[f].n[0], faces[f].n[1], faces[f].n[2], backMat, 255);
-    drawQuadClip(sx[0], sy[0], c, sx[1], sy[1], c, sx[2], sy[2], c, sx[3], sy[3], c);
+    float cx = 0, cy = 0, cz = 0;
+    for (int k = 0; k < 4; k++) { cx += v[f][k][0]; cy += v[f][k][1]; cz += v[f][k][2]; }
+    cx *= 0.25f; cy *= 0.25f; cz *= 0.25f;
+    if (!faceVisible(cx, cy, cz, n[f][0], n[f][1], n[f][2])) continue;
+    drawPolyW(v[f], 4, shadeM(cx, cy, cz, n[f][0], n[f][1], n[f][2], backMat, 255));
   }
 }
 
-/* Griglia del pozzo (gridList): linee verdi, non illuminate */
-static void drawGrid(Pit *pit, uint32_t gridCol, float thick) {
+/* Reticolo verde a 1 pixel, come lo schermo DOS: pareti (linee
+   longitudinali), anelli a ogni livello e griglia del fondo. */
+static void drawGrid(Pit *pit, uint32_t gridCol) {
   VERTEX org = pit->GetOrigin();
   float ox = org.x, oy = org.y, oz = org.z;
   float cS = pit->GetCubeSide(), fD = pit->GetFDepth();
   int width = pit->GetWidth(), height = pit->GetHeight(), depth = pit->GetDepth();
 
-  float sx0, sy0, sx1, sy1;
   for (int i = 0; i <= width; i++) {
-    if (projM(ox + i * cS, -oy, oz, &sx0, &sy0) && projM(ox + i * cS, -oy, oz + fD, &sx1, &sy1))
-      drawLineClip(sx0, sy0, gridCol, sx1, sy1, gridCol, thick);
-    if (projM(ox + i * cS, oy, oz, &sx0, &sy0) && projM(ox + i * cS, oy, oz + fD, &sx1, &sy1))
-      drawLineClip(sx0, sy0, gridCol, sx1, sy1, gridCol, thick);
+    drawLineW(ox + i * cS, -oy, oz, ox + i * cS, -oy, oz + fD, gridCol, 1.0f);
+    drawLineW(ox + i * cS,  oy, oz, ox + i * cS,  oy, oz + fD, gridCol, 1.0f);
   }
   for (int i = 1; i < height; i++) {
-    if (projM(ox, oy + i * cS, oz, &sx0, &sy0) && projM(ox, oy + i * cS, oz + fD, &sx1, &sy1))
-      drawLineClip(sx0, sy0, gridCol, sx1, sy1, gridCol, thick);
-    if (projM(-ox, oy + i * cS, oz, &sx0, &sy0) && projM(-ox, oy + i * cS, oz + fD, &sx1, &sy1))
-      drawLineClip(sx0, sy0, gridCol, sx1, sy1, gridCol, thick);
+    drawLineW( ox, oy + i * cS, oz,  ox, oy + i * cS, oz + fD, gridCol, 1.0f);
+    drawLineW(-ox, oy + i * cS, oz, -ox, oy + i * cS, oz + fD, gridCol, 1.0f);
   }
   for (int i = 0; i <= depth; i++) {
     float z = oz + i * cS;
-    if (projM(ox, -oy, z, &sx0, &sy0) && projM(-ox, -oy, z, &sx1, &sy1))
-      drawLineClip(sx0, sy0, gridCol, sx1, sy1, gridCol, thick);
-    if (projM(-ox, -oy, z, &sx0, &sy0) && projM(-ox, oy, z, &sx1, &sy1))
-      drawLineClip(sx0, sy0, gridCol, sx1, sy1, gridCol, thick);
-    if (projM(-ox, oy, z, &sx0, &sy0) && projM(ox, oy, z, &sx1, &sy1))
-      drawLineClip(sx0, sy0, gridCol, sx1, sy1, gridCol, thick);
-    if (projM(ox, oy, z, &sx0, &sy0) && projM(ox, -oy, z, &sx1, &sy1))
-      drawLineClip(sx0, sy0, gridCol, sx1, sy1, gridCol, thick);
+    drawLineW( ox, -oy, z, -ox, -oy, z, gridCol, 1.0f);
+    drawLineW(-ox, -oy, z, -ox,  oy, z, gridCol, 1.0f);
+    drawLineW(-ox,  oy, z,  ox,  oy, z, gridCol, 1.0f);
+    drawLineW( ox,  oy, z,  ox, -oy, z, gridCol, 1.0f);
   }
   float zb = oz + fD;
-  for (int i = 1; i < width; i++) {
-    if (projM(ox + i * cS, -oy, zb, &sx0, &sy0) && projM(ox + i * cS, oy, zb, &sx1, &sy1))
-      drawLineClip(sx0, sy0, gridCol, sx1, sy1, gridCol, thick);
-  }
-  for (int i = 1; i < height; i++) {
-    if (projM(ox, oy + i * cS, zb, &sx0, &sy0) && projM(-ox, oy + i * cS, zb, &sx1, &sy1))
-      drawLineClip(sx0, sy0, gridCol, sx1, sy1, gridCol, thick);
+  for (int i = 1; i < width; i++)
+    drawLineW(ox + i * cS, -oy, zb, ox + i * cS, oy, zb, gridCol, 1.0f);
+  for (int i = 1; i < height; i++)
+    drawLineW(ox, oy + i * cS, zb, -ox, oy + i * cS, zb, gridCol, 1.0f);
+}
+
+/* Spigoli di un cubo del pozzo: nero, oppure verde griglia se lo spigolo
+   giace su una parete (switch di Pit::RenderEdge, STYLE_CLASSIC) */
+static int edgeGreen(int e, int x, int y, int z, int width, int height, int depth) {
+  switch (e) {
+    case 0: return y == height - 1;
+    case 1: return x == width - 1;
+    case 2: return y == 0;
+    case 3: return x == 0;
+    case 4: return (x == 0) || (y == height - 1);
+    case 5: return (x == width - 1) || (y == height - 1);
+    case 6: return (x == width - 1) || (y == 0);
+    case 7: return (x == 0) || (y == 0);
+    default: return z == depth - 1;
   }
 }
 
-/* Cubi del pozzo (orderMatrix, ordine painter-style dell'originale) */
-static void drawPitCubes(Pit *pit, uint32_t gridCol, uint32_t blkCol, int zbuf) {
+static void drawCubeEdges(Pit *pit, int x, int y, int z, uint32_t gridCol, int all) {
   int width = pit->GetWidth(), height = pit->GetHeight(), depth = pit->GetDepth();
   VERTEX org = pit->GetOrigin();
   float cS = pit->GetCubeSide();
-  float ox = org.x, oy = org.y, oz = org.z;
+  int show[12];
+  if (all) {
+    for (int e = 0; e < 12; e++) show[e] = 1;
+  } else {
+    memset(show, 0, sizeof(show));
+    for (int e = 0; e < 4; e++) show[e] = 1;
+    if (x < width / 2)  { show[5] = 1; show[9] = 1; show[6] = 1; }
+    if (x > width / 2)  { show[4] = 1; show[11] = 1; show[7] = 1; }
+    if (y < height / 2) { show[4] = 1; show[8] = 1; show[5] = 1; }
+    if (y > height / 2) { show[7] = 1; show[10] = 1; show[6] = 1; }
+  }
+  uint32_t blk = r_color(0, 0, 0, 255);
+  for (int e = 0; e < 12; e++) {
+    if (!show[e]) continue;
+    const int *a = cubeEdgeV[e][0], *b = cubeEdgeV[e][1];
+    drawLineW(org.x + (x + a[0]) * cS, org.y + (y + a[1]) * cS, org.z + (z + a[2]) * cS,
+              org.x + (x + b[0]) * cS, org.y + (y + b[1]) * cS, org.z + (z + b[2]) * cS,
+              edgeGreen(e, x, y, z, width, height, depth) ? gridCol : blk, 1.0f);
+  }
+}
 
+static void cubeFace(Pit *pit, int x, int y, int z, int f, float vs[4][3], float *c) {
+  VERTEX org = pit->GetOrigin();
+  float cS = pit->GetCubeSide();
+  c[0] = c[1] = c[2] = 0.0f;
+  for (int k = 0; k < 4; k++) {
+    vs[k][0] = org.x + (x + cubeFaceV[f][k][0]) * cS;
+    vs[k][1] = org.y + (y + cubeFaceV[f][k][1]) * cS;
+    vs[k][2] = org.z + (z + cubeFaceV[f][k][2]) * cS;
+    c[0] += vs[k][0]; c[1] += vs[k][1]; c[2] += vs[k][2];
+  }
+  c[0] *= 0.25f; c[1] *= 0.25f; c[2] *= 0.25f;
+}
+
+/* Cubi del pozzo durante il gioco: ordine di orderMatrix (originale) */
+static void drawPitCubes(Pit *pit, uint32_t gridCol) {
   const BLOCKITEM *om = pit->GetOrderMatrix();
   int mSize = pit->GetMatrixSize();
-
   for (int i = 0; i < mSize; i++) {
     int x = om[i].x, y = om[i].y, z = om[i].z;
     if (!pit->GetValue(x, y, z)) continue;
-    if (zbuf ? !pit->IsVisible2(x, y, z) : !pit->IsVisible(x, y, z)) continue;
-
-    /* --- 6 facce illuminate (GetMaterial(z)) + back-face culling --- */
-    /* Pit::GetMaterial restituisce un puntatore a un static: va riletto
-       ad ogni cella, esattamente come fa l'originale nel loop di Render */
-    const GLMATERIAL mcell = *pit->GetMaterial(z);
-    GLMATERIAL *m = const_cast<GLMATERIAL *>(&mcell);
+    if (!pit->IsVisible(x, y, z)) continue;
+    /* GetMaterial restituisce un puntatore a uno static: copia per cella */
+    const GLMATERIAL m = *pit->GetMaterial(z);
     for (int f = 0; f < 6; f++) {
-      float cxm = 0, cym = 0, czm = 0;
-      float vs[4][3];
-      for (int k = 0; k < 4; k++) {
-        const float *v = cubeFaceV[f][k];
-        cornerWorld(ox, oy, oz, cS, x, y, z, v, &vs[k][0], &vs[k][1], &vs[k][2]);
-        cxm += vs[k][0]; cym += vs[k][1]; czm += vs[k][2];
-      }
-      cxm *= 0.25f; cym *= 0.25f; czm *= 0.25f;
-      float nx = cubeFaceN[f][0], ny = cubeFaceN[f][1], nz = cubeFaceN[f][2];
-      if (!faceVisible(cxm, cym, czm, nx, ny, nz)) continue;
-      float sx[4], sy[4];
-      int ok = 1;
-      for (int k = 0; k < 4; k++)
-        if (!projM(vs[k][0], vs[k][1], vs[k][2], &sx[k], &sy[k])) { ok = 0; break; }
-      if (!ok) continue;
-      uint32_t c = shadeM(cxm, cym, czm, nx, ny, nz, m, 255);
-      drawQuadClip(sx[0], sy[0], c, sx[1], sy[1], c, sx[2], sy[2], c, sx[3], sy[3], c);
+      float vs[4][3], c[3];
+      cubeFace(pit, x, y, z, f, vs, c);
+      const float *n = cubeFaceN[f];
+      if (!faceVisible(c[0], c[1], c[2], n[0], n[1], n[2])) continue;
+      drawPolyW(vs, 4, shadeM(c[0], c[1], c[2], n[0], n[1], n[2], &m, 255));
     }
+    drawCubeEdges(pit, x, y, z, gridCol, 0);
+  }
+}
 
-    /* --- contorni (lcubeList): nero, o verde secondo il switch
-         esatto di Pit::RenderEdge (STYLE_CLASSIC) --- */
-    int isGreen[12];
-    for (int e = 0; e < 12; e++) {
-      int gg = 0;
-      switch (e) {
-        case 0: gg = (y == height - 1); break;
-        case 1: gg = (x == width - 1); break;
-        case 2: gg = (y == 0); break;
-        case 3: gg = (x == 0); break;
-        case 4: gg = (x == 0) || (y == height - 1); break;
-        case 5: gg = (x == width - 1) || (y == height - 1); break;
-        case 6: gg = (x == width - 1) || (y == 0); break;
-        case 7: gg = (x == 0) || (y == 0); break;
-        default: gg = (z == depth - 1); break;
+/* Orbita di GAME OVER: l'originale accendeva lo z-buffer. Qui le facce
+   visibili di tutti i cubi vengono raccolte e disegnate dalla piu' lontana
+   alla piu' vicina, ciascuna col suo contorno. */
+typedef struct { float d; short x, y, z; unsigned char f; } SortFace;
+static SortFace gFaces[7 * 7 * 18 * 3];
+
+static int cmpFace(const void *a, const void *b) {
+  float da = ((const SortFace *)a)->d, db = ((const SortFace *)b)->d;
+  return (da < db) ? 1 : (da > db) ? -1 : 0;
+}
+
+static void drawPitCubesSorted(Pit *pit, uint32_t gridCol) {
+  int width = pit->GetWidth(), height = pit->GetHeight(), depth = pit->GetDepth();
+  int nf = 0;
+  const int maxF = (int)(sizeof(gFaces) / sizeof(gFaces[0]));
+  for (int z = 0; z < depth; z++)
+    for (int y = 0; y < height; y++)
+      for (int x = 0; x < width; x++) {
+        if (!pit->GetValue(x, y, z)) continue;
+        for (int f = 0; f < 6 && nf < maxF; f++) {
+          static const int nb[6][3] = { {0,0,-1}, {1,0,0}, {0,0,1}, {-1,0,0}, {0,-1,0}, {0,1,0} };
+          int ax = x + nb[f][0], ay = y + nb[f][1], az = z + nb[f][2];
+          if (ax >= 0 && ax < width && ay >= 0 && ay < height && az >= 0 && az < depth &&
+              pit->GetValue(ax, ay, az)) continue;          /* faccia interna */
+          float vs[4][3], c[3];
+          cubeFace(pit, x, y, z, f, vs, c);
+          const float *n = cubeFaceN[f];
+          if (!faceVisible(c[0], c[1], c[2], n[0], n[1], n[2])) continue;
+          float ex, ey, ez; eyePoint(c[0], c[1], c[2], &ex, &ey, &ez);
+          gFaces[nf].d = ex * ex + ey * ey + ez * ez;
+          gFaces[nf].x = (short)x; gFaces[nf].y = (short)y; gFaces[nf].z = (short)z;
+          gFaces[nf].f = (unsigned char)f;
+          nf++;
+        }
       }
-      isGreen[e] = gg;
-    }
-
-    int showEdges[12];
-    memset(showEdges, 0, sizeof(showEdges));
-    for (int e = 0; e < 4; e++) showEdges[e] = 1;
-    if (x < width / 2) { showEdges[5] = 1; showEdges[9] = 1; showEdges[6] = 1; }
-    if (x > width / 2) { showEdges[4] = 1; showEdges[11] = 1; showEdges[7] = 1; }
-    if (y < height / 2) { showEdges[4] = 1; showEdges[8] = 1; showEdges[5] = 1; }
-    if (y > height / 2) { showEdges[7] = 1; showEdges[10] = 1; showEdges[6] = 1; }
-
-    for (int e = 0; e < 12; e++) {
-      if (!showEdges[e]) continue;
-      float v0[3] = { (float)cubeEdgeV[e][0][0], (float)cubeEdgeV[e][0][1], (float)cubeEdgeV[e][0][2] };
-      float v1[3] = { (float)cubeEdgeV[e][1][0], (float)cubeEdgeV[e][1][1], (float)cubeEdgeV[e][1][2] };
-      float ax, ay, az, bx, by, bz;
-      cornerWorld(ox, oy, oz, cS, x, y, z, v0, &ax, &ay, &az);
-      cornerWorld(ox, oy, oz, cS, x, y, z, v1, &bx, &by, &bz);
-      float sx0, sy0, sx1, sy1;
-      if (!projM(ax, ay, az, &sx0, &sy0)) continue;
-      if (!projM(bx, by, bz, &sx1, &sy1)) continue;
-      uint32_t c = isGreen[e] ? gridCol : blkCol;
-      drawLineClip(sx0, sy0, c, sx1, sy1, c, 1.0f);
+  qsort(gFaces, nf, sizeof(SortFace), cmpFace);
+  static const int faceEdges[6][4] = {
+    {0,1,2,3}, {5,9,6,1}, {8,11,10,9}, {4,3,7,11}, {6,10,7,2}, {8,5,0,4}
+  };
+  uint32_t blk = r_color(0, 0, 0, 255);
+  VERTEX org = pit->GetOrigin();
+  float cS = pit->GetCubeSide();
+  for (int i = 0; i < nf; i++) {
+    int x = gFaces[i].x, y = gFaces[i].y, z = gFaces[i].z, f = gFaces[i].f;
+    const GLMATERIAL m = *pit->GetMaterial(z);
+    float vs[4][3], c[3];
+    cubeFace(pit, x, y, z, f, vs, c);
+    const float *n = cubeFaceN[f];
+    drawPolyW(vs, 4, shadeM(c[0], c[1], c[2], n[0], n[1], n[2], &m, 255));
+    for (int k = 0; k < 4; k++) {
+      int e = faceEdges[f][k];
+      const int *a = cubeEdgeV[e][0], *b = cubeEdgeV[e][1];
+      drawLineW(org.x + (x + a[0]) * cS, org.y + (y + a[1]) * cS, org.z + (z + a[2]) * cS,
+                org.x + (x + b[0]) * cS, org.y + (y + b[1]) * cS, org.z + (z + b[2]) * cS,
+                edgeGreen(e, x, y, z, width, height, depth) ? gridCol : blk, 1.0f);
     }
   }
 }
 
 /* ------------------------------------------------------------------ */
-/* Polycube corrente (pezzo) + ghost, con la matrice di Game           */
+/* Pezzo corrente                                                       */
 /* ------------------------------------------------------------------ */
 
-static void drawPieceCubes(PolyCube *pc, GLMATERIAL *whiteMat, GLMATERIAL *redMat,
-                           GLMATERIAL *grayMat, int redMode, int bigEdge) {
+/* PolyCube::Render(): il pezzo in caduta e' SOLO il filo (lineList, non
+   illuminato, bianco o rosso quando la rotazione e' bloccata), come nel
+   BlockOut DOS. Il riempimento semitrasparente e' opzionale (Setup). */
+static void drawPieceCubes(PolyCube *pc, int redMode, int bigEdge) {
   int nb = pc->GetNbCube();
   BLOCKITEM *cubes = pc->GetCubes();
   float cS = pc->GetCubeSide();
   VERTEX org = pc->GetOrigin();
 
-  /* facce piene (whiteMaterial o redMaterial, illuminate) */
-  for (int ci = 0; ci < nb; ci++) {
-    int x = cubes[ci].x, y = cubes[ci].y, z = cubes[ci].z;
-    for (int f = 0; f < 6; f++) {
-      /* come nell'originale: le facce interne del pezzo non sono disegnate
-         (Create() le omette), ma RenderCube le ricrea; l'unico filtro che
-         conta e' il back-face culling */
-      float cxm = 0, cym = 0, czm = 0;
-      float vs[4][3];
-      for (int k = 0; k < 4; k++) {
-        const float *v = cubeFaceV[f][k];
-        cornerWorld(org.x, org.y, org.z, cS, x, y, z, v, &vs[k][0], &vs[k][1], &vs[k][2]);
-        cxm += vs[k][0]; cym += vs[k][1]; czm += vs[k][2];
+  if (gPieceFill) {
+    GLMATERIAL fm;
+    memset(&fm, 0, sizeof(fm));
+    fm.Ambient.r = 0.45f;
+    fm.Ambient.g = fm.Ambient.b = redMode ? 0.0f : 0.45f;
+    fm.Diffuse.r = 0.5f;
+    fm.Diffuse.g = fm.Diffuse.b = redMode ? 0.0f : 0.5f;
+    for (int ci = 0; ci < nb; ci++) {
+      int x = cubes[ci].x, y = cubes[ci].y, z = cubes[ci].z;
+      for (int f = 0; f < 6; f++) {
+        float vs[4][3], c[3] = { 0, 0, 0 };
+        for (int k = 0; k < 4; k++) {
+          vs[k][0] = org.x + (x + cubeFaceV[f][k][0]) * cS;
+          vs[k][1] = org.y + (y + cubeFaceV[f][k][1]) * cS;
+          vs[k][2] = org.z + (z + cubeFaceV[f][k][2]) * cS;
+          c[0] += vs[k][0]; c[1] += vs[k][1]; c[2] += vs[k][2];
+        }
+        c[0] *= 0.25f; c[1] *= 0.25f; c[2] *= 0.25f;
+        const float *n = cubeFaceN[f];
+        if (!faceVisible(c[0], c[1], c[2], n[0], n[1], n[2])) continue;
+        drawPolyW(vs, 4, shadeM(c[0], c[1], c[2], n[0], n[1], n[2], &fm, 70));
       }
-      cxm *= 0.25f; cym *= 0.25f; czm *= 0.25f;
-      float nx = cubeFaceN[f][0], ny = cubeFaceN[f][1], nz = cubeFaceN[f][2];
-      if (!faceVisible(cxm, cym, czm, nx, ny, nz)) continue;
-      float sx[4], sy[4];
-      int ok = 1;
-      for (int k = 0; k < 4; k++)
-        if (!projM(vs[k][0], vs[k][1], vs[k][2], &sx[k], &sy[k])) { ok = 0; break; }
-      if (!ok) continue;
-      uint32_t c = shadeM(cxm, cym, czm, nx, ny, nz, redMode ? redMat : whiteMat, 255);
-      drawQuadClip(sx[0], sy[0], c, sx[1], sy[1], c, sx[2], sy[2], c, sx[3], sy[3], c);
     }
   }
 
-  /* bordi (lineList): NON illuminati -> colore ambiente (Bianco/Rosso) */
-  uint32_t lcol = ambColor(redMode ? redMat : whiteMat);
-  lcol = (lcol & 0x00FFFFFFu) | 0xFF000000u;
-  if (bigEdge > 0) {
-    /* bigEdgeList: rese come linee spesse (adattamento hardware) */
-    int nE = pc->GetNbEdge();
-    EDGE *ed = pc->GetEdges();
-    float t = (float)bigEdge;
-    for (int i = 0; i < nE; i++) {
-      float ax = (ed[i].p1.x + 0.5f) * cS + org.x, ay = (ed[i].p1.y + 0.5f) * cS + org.y, az = (ed[i].p1.z + 0.5f) * cS + org.z;
-      float bx = (ed[i].p2.x + 0.5f) * cS + org.x, by = (ed[i].p2.y + 0.5f) * cS + org.y, bz = (ed[i].p2.z + 0.5f) * cS + org.z;
-      float sx0, sy0, sx1, sy1;
-      if (!projM(ax, ay, az, &sx0, &sy0)) continue;
-      if (!projM(bx, by, bz, &sx1, &sy1)) continue;
-      uint32_t c = shadeM((ax + bx) * 0.5f, (ay + by) * 0.5f, (az + bz) * 0.5f, 0, 0, -1, grayMat, 255);
-      drawLineClip(sx0, sy0, c, sx1, sy1, c, t * 2.0f);
-    }
-  } else {
-    int nE = pc->GetNbEdge();
-    EDGE *ed = pc->GetEdges();
-    for (int i = 0; i < nE; i++) {
-      float ax = (float)ed[i].p1.x * cS + org.x, ay = (float)ed[i].p1.y * cS + org.y, az = (float)ed[i].p1.z * cS + org.z;
-      float bx = (float)ed[i].p2.x * cS + org.x, by = (float)ed[i].p2.y * cS + org.y, bz = (float)ed[i].p2.z * cS + org.z;
-      float sx0, sy0, sx1, sy1;
-      if (!projM(ax, ay, az, &sx0, &sy0)) continue;
-      if (!projM(bx, by, bz, &sx1, &sy1)) continue;
-      drawLineClip(sx0, sy0, lcol, sx1, sy1, lcol, 1.0f);
-    }
+  uint32_t lcol = redMode ? r_color(255, 0, 0, 255) : r_color(255, 255, 255, 255);
+  int nE = pc->GetNbEdge();
+  EDGE *ed = pc->GetEdges();
+  float off = (bigEdge > 0) ? 0.5f : 0.0f;   /* bigEdgeList: centri dei cubi */
+  float th = (bigEdge > 0) ? 2.0f : 1.0f;
+  for (int i = 0; i < nE; i++) {
+    drawLineW((ed[i].p1.x + off) * cS + org.x, (ed[i].p1.y + off) * cS + org.y,
+              (ed[i].p1.z + off) * cS + org.z,
+              (ed[i].p2.x + off) * cS + org.x, (ed[i].p2.y + off) * cS + org.y,
+              (ed[i].p2.z + off) * cS + org.z, lcol, th);
   }
 }
 
-/* Ghost del pezzo corrente: facce visibili (IsFaceVisible) con ghostMaterial */
-static void drawPieceGhost(PolyCube *pc, float trans, uint32_t colBase) {
+/* Facce del pezzo con ghostMaterial (transparent face > 0, e suggerimento
+   dell'IA in pratica): prima le posteriori, poi le anteriori. */
+static void drawPieceGhost(PolyCube *pc, uint32_t colFront, uint32_t colBack) {
   int nb = pc->GetNbCube();
   BLOCKITEM *cubes = pc->GetCubes();
   float cS = pc->GetCubeSide();
   VERTEX org = pc->GetOrigin();
-  int alpha = (int)(trans * 255.0f);
-
-  for (int ci = 0; ci < nb; ci++) {
-    int x = cubes[ci].x, y = cubes[ci].y, z = cubes[ci].z;
-    /* IsFaceVisible del PolyCube originale */
-    int vis[6];
-    vis[0] = !pc->FindCube(x, y, z - 1);
-    vis[1] = !pc->FindCube(x - 1, y, z);
-    vis[2] = !pc->FindCube(x, y, z + 1);
-    vis[3] = !pc->FindCube(x + 1, y, z);
-    vis[4] = !pc->FindCube(x, y + 1, z);
-    vis[5] = !pc->FindCube(x, y - 1, z);
-    for (int f = 0; f < 6; f++) {
-      if (!vis[f]) continue;
-      float cxm = 0, cym = 0, czm = 0;
-      float vs[4][3];
-      for (int k = 0; k < 4; k++) {
-        const float *v = cubeFaceV[f][k];
-        cornerWorld(org.x, org.y, org.z, cS, x, y, z, v, &vs[k][0], &vs[k][1], &vs[k][2]);
-        cxm += vs[k][0]; cym += vs[k][1]; czm += vs[k][2];
+  for (int pass = 0; pass < 2; pass++) {
+    for (int ci = 0; ci < nb; ci++) {
+      int x = cubes[ci].x, y = cubes[ci].y, z = cubes[ci].z;
+      int vis[6];
+      vis[0] = !pc->FindCube(x, y, z - 1);
+      vis[1] = !pc->FindCube(x + 1, y, z);
+      vis[2] = !pc->FindCube(x, y, z + 1);
+      vis[3] = !pc->FindCube(x - 1, y, z);
+      vis[4] = !pc->FindCube(x, y - 1, z);
+      vis[5] = !pc->FindCube(x, y + 1, z);
+      for (int f = 0; f < 6; f++) {
+        if (!vis[f]) continue;
+        float vs[4][3], c[3] = { 0, 0, 0 };
+        for (int k = 0; k < 4; k++) {
+          vs[k][0] = org.x + (x + cubeFaceV[f][k][0]) * cS;
+          vs[k][1] = org.y + (y + cubeFaceV[f][k][1]) * cS;
+          vs[k][2] = org.z + (z + cubeFaceV[f][k][2]) * cS;
+          c[0] += vs[k][0]; c[1] += vs[k][1]; c[2] += vs[k][2];
+        }
+        c[0] *= 0.25f; c[1] *= 0.25f; c[2] *= 0.25f;
+        int front = faceVisible(c[0], c[1], c[2], cubeFaceN[f][0], cubeFaceN[f][1], cubeFaceN[f][2]);
+        if ((pass == 0) == (front != 0)) continue;
+        drawPolyW(vs, 4, front ? colFront : colBack);
       }
-      cxm *= 0.25f; cym *= 0.25f; czm *= 0.25f;
-      if (!faceVisible(cxm, cym, czm, cubeFaceN[f][0], cubeFaceN[f][1], cubeFaceN[f][2])) continue;
-      float sx[4], sy[4];
-      int ok = 1;
-      for (int k = 0; k < 4; k++)
-        if (!projM(vs[k][0], vs[k][1], vs[k][2], &sx[k], &sy[k])) { ok = 0; break; }
-      if (!ok) continue;
-      drawQuadClip(sx[0], sy[0], colBase, sx[1], sy[1], colBase,
-                   sx[2], sy[2], colBase, sx[3], sy[3], colBase);
-      (void)alpha;
     }
   }
 }
 
 /* ------------------------------------------------------------------ */
-/* Spark: flash bianco nel punto di rimbalzo (sprite 4x4 dell'orig.)   */
+/* Spark                                                                */
 /* ------------------------------------------------------------------ */
 
 static const float sparkTime = 0.5f;   /* identico alla costante di Game.cpp */
 
 void drawSpark(Game *g) {
   float sTime = g->curTime - g->startSpark;
-  if (sTime >= sparkTime) return;
-
-  int frame = (int)((sTime * 16.0f) / sparkTime);
-  if (frame > 15) frame = 15;
-
+  if (sTime >= sparkTime || sTime < 0.0f) return;
   float ratio = sTime / sparkTime;
   int alpha = (int)(255.0f * (1.0f - ratio));
   if (alpha <= 0) return;
-  uint32_t c = r_color(255, 255, 255, alpha);
 
-  /* Game::StartSpark() salva centro/raggio nelle coordinate bottom-left
-     dell'originale (spriteView a schermo intero): conversione top-left  */
+  /* StartSpark() salva il centro in coordinate bottom-left del viewport
+     sprite (schermo intero) */
   float cx = g->sparkX;
   float cy = 240.0f - g->sparkY;
-  float r  = g->sparkW * 0.5f * (0.55f + 0.45f * (float)frame / 15.0f);
+  float r  = g->sparkW * 0.5f * (0.55f + 0.45f * ratio);
+  if (!isfinite(cx) || !isfinite(cy) || !isfinite(r)) return;
+  if (cx < gPitX || cx > gPitX + gPitW || cy < gPitY || cy > gPitY + gPitH) return;
+  if (r < 1.0f) return;
+  if (r > 60.0f) r = 60.0f;
 
-  /* stella a 8 punte: stessa silhouette dello sprite, animata nei 16 frame */
-  V2C poly[8];
+  /* stella a 8 raggi (lo sprite dell'originale) */
+  uint32_t c = r_color(255, 255, 255, alpha);
+  uint32_t h = r_color(255, 255, 160, alpha / 2);
   for (int i = 0; i < 8; i++) {
-    float a = (float)i * 0.7853981634f;
-    float rr = (i & 1) ? r * 0.36f : r;
-    poly[i].x = cx + cosf(a) * rr;
-    poly[i].y = cy - sinf(a) * rr;
-    poly[i].c = c;
+    float a = (float)i * 0.7853981634f + ratio * 0.6f;
+    float rr = (i & 1) ? r * 0.55f : r;
+    C2D_DrawLine(cx, cy, c, cx + cosf(a) * rr, cy - sinf(a) * rr, h, (i & 1) ? 1.0f : 2.0f, 0.5f);
   }
-  for (int i = 1; i < 7; i++) {
-    C2D_DrawTriangle(poly[0].x, poly[0].y, c, poly[i].x, poly[i].y, c,
-                     poly[i + 1].x, poly[i + 1].y, c, 0.5f);
-    flushIfNeeded(1);
-  }
+  float cr = 2.0f + 3.0f * (1.0f - ratio);
+  C2D_DrawRectSolid(cx - cr * 0.5f, cy - cr * 0.5f, 0.5f, cr, cr, c);
 }
 
 /* ------------------------------------------------------------------ */
-/* HUD: gli stessi valori e le stesse posizioni di Sprites.cpp         */
-/* (le etichette erano "stampate" nel background.png: qui in testo)    */
+/* Colonna dei livelli (Pit::RenderLevel)                               */
 /* ------------------------------------------------------------------ */
-
-static uint32_t opaque(uint32_t c) { return (c & 0x00FFFFFFu) | 0xFF000000u; }
-
-void renderHud(Game *g) {
-  char buf[32];
-
-  /* Pannello laterale a destra del pozzo (x 326..398, come la striscia
-     libera dal viewport): etichetta sopra il valore, come nel background
-     dell'originale. Disegnato identico nei due occhi = a prof. schermo. */
-  const float px0 = 326.0f, px1 = 398.0f, pyc = (px0 + px1) * 0.5f;
-  const float py0 = 4.0f, py1 = 234.0f;
-
-  r_rect(px0, py0, px1 - px0, py1 - py0, r_color(14, 16, 22, 255));
-  r_rect(px0, py0, px1 - px0, 1.0f, COL_GREEN);
-  r_rect(px0, py1 - 1.0f, px1 - px0, 1.0f, COL_GREEN);
-  r_rect(px0, py0, 1.0f, py1 - py0, COL_GREEN);
-  r_rect(px1 - 1.0f, py0, 1.0f, py1 - py0, COL_GREEN);
-
-  r_text(pyc, 8.0f, 12.0f, COL_GREEN, "GAME", 1, 0);
-  r_line(px0 + 4.0f, 24.0f, px1 - 4.0f, 24.0f, 1.0f, COL_GRAY);
-
-  /* riga: etichetta grigia 9px + valore bianco centrato; il valore scala
-     a 11px se troppo largo per il pannello */
-  struct Row { const char *label; const char *val; };
-  char sScore[16], sCube[16], sHigh[16], sTime[16], sPit[16];
-  snprintf(sScore, sizeof(sScore), "%d", g->score.score);
-  snprintf(sCube, sizeof(sCube), "%d", g->score.nbCube);
-  snprintf(sHigh, sizeof(sHigh), "%d", g->highScore);
-  int secs = (int)(g->curTime - g->startGameTime);
-  if (secs < 0) secs = 0;
-  snprintf(sTime, sizeof(sTime), "%d:%02d", secs / 60, secs % 60);
-  snprintf(sPit, sizeof(sPit), "%dx%dx%d", g->thePit.GetWidth(),
-           g->thePit.GetHeight(), g->thePit.GetDepth());
-
-  const Row rows[] = {
-    { "SCORE",  sScore },
-    { "CUBES",  sCube },
-    { "BEST",   sHigh },
-    { "TIME",   sTime },
-    { "PIT",    sPit },
-    { "SET",    g->setupManager->GetBlockSetName() },
-  };
-  float y = 29.0f;
-  for (size_t i = 0; i < sizeof(rows) / sizeof(rows[0]); i++) {
-    r_text(pyc, y, 9.0f, COL_GRAY, rows[i].label, 1, 0);
-    float vh = 13.0f;
-    if (r_text_width(rows[i].val, vh) > (px1 - px0 - 8.0f)) vh = 11.0f;
-    r_text(pyc, y + 9.0f, vh, COL_WHITE, rows[i].val, 1, 0);
-    y += 27.0f;
-  }
-
-  r_line(px0 + 4.0f, y - 4.0f, px1 - 4.0f, y - 4.0f, 1.0f, COL_GRAY);
-
-  /* stato: demo / pratica / pausa (l'originale: RenderDemo/RenderPractice) */
-  const char *mode = NULL;
-  uint32_t mc = COL_GREEN;
-  if (g->demoFlag)           { mode = "DEMO";     }
-  else if (g->practiceFlag)  { mode = "PRACTICE"; }
-  else if (g->gameMode == GAME_PAUSED) { mode = "PAUSED"; mc = COL_WHITE; }
-  if (mode) r_text(pyc, y + 2.0f, 11.0f, mc, mode, 1, 0);
-
-  /* livello nel box di sinistra (Sprites::RenderLevel) */
-  snprintf(buf, sizeof(buf), "%d", g->level);
-  r_text(17.0f, 8.0f, 16.0f, COL_WHITE, buf, 1, 0);
-  r_text(17.0f, 24.0f, 9.0f, COL_GRAY, "LVL", 1, 0);
-}
-
-/* Pit::RenderLevel(): colonna del livello a sinistra, disegnata con gli
-   stessi pixel di Pit::DrawPitLevelCubes (SetPix scrive l'ambient) */
-static void levelCubes(int LX, int LT, int LH, int x, int y, int w, int h,
-                       uint32_t fill, uint32_t white) {
-  int f1 = (int)lroundf((float)h / 4.0f);
-  int f2 = (int)lroundf((float)h / 2.0f);
-  int wc = w / 3;
-  int sX = h / 2;
-  int eX = sX + 2 * wc;
-
-  for (int j = 0; j < h; j++) {
-    if (j > f2) eX--;
-    int sy = LT + LH - 1 - (j + y);
-    if (eX > sX) r_rect((float)(LX + x + sX), (float)sy, (float)(eX - sX), 1.0f, fill);
-    sX--;
-    if (sX < 0) sX = 0;
-  }
-
-  sX = h / 2;
-  for (int j = 0; j < h; j++) {
-    int sy = LT + LH - 1 - (j + y);
-    if (j == 0 || j == f1 || j == f2 || j == h - 1) {
-      r_rect((float)(LX + x + sX), (float)sy, (float)(2 * wc + 1), 1.0f, white);
-    } else {
-      r_rect((float)(LX + x + sX), (float)sy, 1.0f, 1.0f, white);
-      r_rect((float)(LX + x + sX + wc), (float)sy, 1.0f, 1.0f, white);
-      r_rect((float)(LX + x + sX + 2 * wc), (float)sy, 1.0f, 1.0f, white);
-    }
-    if (sX > 0)
-      r_rect((float)(LX + x + sX + 2 * wc), (float)(LT + LH - 1 - (j + h / 2 + y)), 1.0f, 1.0f, white);
-    if (j <= h / 2)
-      r_rect((float)(LX + x + h / 2 + 2 * wc), (float)sy, 1.0f, 1.0f, white);
-    if (j >= f1 && j <= f1 + h / 2)
-      r_rect((float)(LX + x + h / 2 - f1 + 2 * wc), (float)sy, 1.0f, 1.0f, white);
-    sX--;
-    if (sX < 0) sX = 0;
-  }
-}
+/* Come nel DOS: una colonna stretta a sinistra del pozzo, uno scomparto
+   per ogni livello di profondita'; gli strati occupati si accendono del
+   colore del loro livello, dal fondo verso l'alto. */
 
 void drawPitLevel(Game *g) {
   Pit *pit = &g->thePit;
   int depth = pit->GetDepth();
+  const float x0 = 12.0f, w = 22.0f;
+  const float yTop = PIT_Y + 2.0f, yBot = PIT_Y + PIT_S - 2.0f;
+  float cell = floorf((yBot - yTop) / (float)depth);
+  if (cell > 16.0f) cell = 16.0f;
+  float h = cell * depth;
+  float y0 = yBot - h;
 
-  /* Pit::CreatePitLevel() riscaldata a 400x240 */
-  const int LX = 7;     /* fround(0.0176f*400) */
-  const int LW = 20;    /* fround(0.0498f*400) */
-  const int LH = 198;   /* fround(0.8255f*240) */
-  const int LT = 6;     /* 240 - (fround(0.1510f*240) + LH) */
+  uint32_t grid = ambColor(pit->GetGridMaterial());
+  /* telaio */
+  r_rect(x0 - 3.0f, y0 - 3.0f, w + 6.0f, 1.0f, grid);
+  r_rect(x0 - 3.0f, yBot + 2.0f, w + 6.0f, 1.0f, grid);
+  r_rect(x0 - 3.0f, y0 - 3.0f, 1.0f, h + 6.0f, grid);
+  r_rect(x0 + w + 2.0f, y0 - 3.0f, 1.0f, h + 6.0f, grid);
 
-  if (LW < 8) return;   /* come nell'originale */
-
-  int cS = (LH - 2) / 20;
-  int sY = LH - (cS * depth) - 2;
-
-  uint32_t grid  = opaque(ambColor(pit->GetGridMaterial()));
-  uint32_t white = opaque(ambColor(pit->GetWhiteMaterial()));
-
-  for (int j = 0; j < depth; j++) {
-    int yb = LT + LH - 1 - sY;
-    r_rect((float)(LX + 1), (float)yb, 1.0f, 1.0f, grid);
-    r_rect((float)(LX + 2), (float)yb, 1.0f, 1.0f, grid);
-    r_rect((float)(LX + LW - 3), (float)yb, 1.0f, 1.0f, grid);
-    r_rect((float)(LX + LW - 2), (float)yb, 1.0f, 1.0f, grid);
-    for (int i = sY; i < sY + cS; i++) {
-      int yy = LT + LH - 1 - i;
-      r_rect((float)LX, (float)yy, 1.0f, 1.0f, grid);
-      r_rect((float)(LX + LW - 1), (float)yy, 1.0f, 1.0f, grid);
+  for (int z = 0; z < depth; z++) {
+    /* z = depth-1 e' il fondo del pozzo: scomparto piu' in basso */
+    float yy = yBot - (float)(depth - z) * cell;
+    if (!pit->IsLineEmpty(z)) {
+      const GLMATERIAL m = *pit->GetMaterial(z);
+      uint32_t c = ambColor(&m);
+      r_rect(x0, yy + 1.0f, w, cell - 1.0f, c);
+      r_rect(x0, yy + 1.0f, w, 1.0f, scaleCol(c, 1.45f));
+      r_rect(x0, yy + cell - 1.0f, w, 1.0f, scaleCol(c, 0.55f));
+    } else {
+      r_rect(x0 + w * 0.5f - 1.0f, yy + cell * 0.5f, 2.0f, 1.0f, scaleCol(grid, 0.6f));
     }
-    if (!pit->IsLineEmpty(j))
-      levelCubes(LX, LT, LH, 3, sY + 2, LW - 6, cS - 3,
-                 opaque(ambColor(pit->GetMaterial(j))), white);
-    sY += cS;
-  }
-
-  for (int i = 0; i < LW; i++)
-    r_rect((float)(LX + i), (float)(LT + LH - 1 - (LH - 2)), 1.0f, 1.0f, grid);
-}
-
-/* sprites.RenderGameMode(): "PAUSE" / "GAME OVER" nel riquadro originale */
-void renderGameModeOverlay(Game *g) {
-  const float xGOver = 130.0f;   /* fround(0.3252f*400) */
-  const float yGOver = 100.0f;   /* fround(0.4167f*240) */
-  const float wGOver = 100.0f;   /* fround(0.2500f*400) */
-  const float hGOver = 40.0f;    /* fround(0.1680f*240) */
-
-  if (g->gameMode == GAME_OVER) {
-    r_text(xGOver + wGOver * 0.5f, yGOver + hGOver * 0.5f - 12.0f, 24.0f, COL_RED, "GAME OVER", 1, 0);
-    r_text(xGOver + wGOver * 0.5f, yGOver + hGOver * 0.5f + 16.0f, 12.0f, COL_WHITE,
-           "START: menu   SELECT: exit", 1, 0);
-  } else if (g->gameMode == GAME_PAUSED) {
-    r_text(xGOver + wGOver * 0.5f, yGOver + hGOver * 0.5f - 12.0f, 24.0f, COL_WHITE, "PAUSED", 1, 0);
-    r_text(xGOver + wGOver * 0.5f, yGOver + hGOver * 0.5f + 16.0f, 12.0f, COL_WHITE,
-           "START: resume", 1, 0);
   }
 }
 
 /* ------------------------------------------------------------------ */
-/* Rendering del pozzo (top screen)                                     */
+/* Colonna delle informazioni (Sprites::RenderInfo / RenderScore)       */
+/* ------------------------------------------------------------------ */
+
+static void infoRow(float y, const char *label, const char *val, int vscale, uint32_t vc) {
+  r_print(COL_X + 4.0f, y, 1, UI_LABEL, label, 0);
+  r_print(COL_X + COL_W - 4.0f, y + 10.0f, vscale, vc, val, 2);
+}
+
+void renderHud(Game *g) {
+  char buf[32];
+
+  ui_box(COL_X, PIT_Y, COL_W, PIT_S, UI_FRAME, E_BLACK, NULL, 0);
+
+  snprintf(buf, sizeof(buf), "%d", g->level);
+  infoRow(9.0f, "LEVEL", buf, 2, E_WHITE);
+
+  snprintf(buf, sizeof(buf), "%ld", (long)g->score.score);
+  infoRow(42.0f, "SCORE", buf, (strlen(buf) <= 6) ? 2 : 1, UI_VALUE);
+
+  snprintf(buf, sizeof(buf), "%ld", (long)g->score.nbCube);
+  infoRow(76.0f, "CUBES PLAYED", buf, 1, UI_VALUE);
+
+  snprintf(buf, sizeof(buf), "%ld", (long)g->highScore);
+  infoRow(102.0f, "HIGH SCORE", buf, 1, UI_VALUE);
+
+  snprintf(buf, sizeof(buf), "%dx%dx%d", g->thePit.GetWidth(),
+           g->thePit.GetHeight(), g->thePit.GetDepth());
+  infoRow(128.0f, "PIT", buf, 1, E_WHITE);
+
+  infoRow(154.0f, "BLOCK SET", g->setupManager->GetBlockSetName(), 1, E_WHITE);
+
+  /* avanzamento verso il livello successivo */
+  r_print(COL_X + 4.0f, 182.0f, 1, UI_LABEL, "NEXT LEVEL", 0);
+  int cpl = g->cubePerLevel > 0 ? g->cubePerLevel : 1;
+  float frac = (g->level >= 10) ? 1.0f :
+               (float)(g->score.nbCube - cpl * g->level) / (float)cpl;
+  ui_bar(COL_X + 4.0f, 192.0f, COL_W - 8.0f, 8.0f, frac, E_LGREEN);
+
+  /* stato (RenderDemo / RenderPractice dell'originale), lampeggiante */
+  const char *mode = NULL;
+  uint32_t mc = E_LGREEN;
+  if (g->demoFlag)                     { mode = "DEMO"; mc = E_LMAGENTA; }
+  else if (g->practiceFlag)            { mode = "PRACTICE"; mc = E_YELLOW; }
+  if (g->gameMode == GAME_PAUSED)      { mode = "PAUSE"; mc = E_WHITE; }
+  if (mode && (ui_blink(g->curTime, 1.0f) || g->gameMode == GAME_PAUSED)) {
+    r_rect(COL_X + 4.0f, 208.0f, COL_W - 8.0f, 14.0f, E_BLUE);
+    r_print(COL_X + COL_W * 0.5f, 211.0f, 1, mc, mode, 1);
+  }
+}
+
+/* PAUSE / GAME OVER nel centro del pozzo (Sprites::RenderGameMode) */
+void renderGameModeOverlay(Game *g) {
+  float cx = PIT_X + PIT_S * 0.5f, cy = PIT_Y + PIT_S * 0.5f;
+  if (g->gameMode == GAME_OVER) {
+    ui_box(cx - 84.0f, cy - 18.0f, 168.0f, 36.0f, E_LRED, E_BLACK, NULL, 0);
+    uint32_t c = ui_blink(g->curTime, 0.8f) ? E_YELLOW : E_LRED;
+    r_print(cx, cy - 8.0f, 2, c, "GAME OVER", 1);
+  } else if (g->gameMode == GAME_PAUSED) {
+    ui_box(cx - 52.0f, cy - 18.0f, 104.0f, 36.0f, UI_FRAME, E_BLACK, NULL, 0);
+    r_print(cx, cy - 8.0f, 2, E_WHITE, "PAUSE", 1);
+  }
+}
+
+/* Pratica: "Press [H] to see suggested position" nei primi 3 secondi
+   (Game::RenderPracticeHelp) */
+void renderPracticeHelp(Game *g) {
+  if (!g->practiceFlag || g->demoFlag || g->gameMode != GAME_PLAYING) return;
+  if (g->curTime - g->startGameTime >= 3.0f) return;
+  float cx = PIT_X + PIT_S * 0.5f, cy = PIT_Y + PIT_S * 0.5f;
+  r_rect(cx - 104.0f, cy - 8.0f, 208.0f, 16.0f, E_BLUE);
+  r_print(cx, cy - 4.0f, 1, E_WHITE, "PRESS ZL FOR A HINT", 1);
+}
+
+/* ------------------------------------------------------------------ */
+/* Pozzo (schermo superiore)                                            */
 /* ------------------------------------------------------------------ */
 
 void renderPitView(Game *g, int eye) {
   Pit *pit = &g->thePit;
-
-  /* l'originale caricava pitMatrix solo durante l'animazione finale */
   const float *viewSrc = g->endAnimStarted ? g->pitMatrix : g->matView;
 
-  /* piano a disparita' zero: meta' del pozzo (segue la profondita' impostata) */
-  gConvZ = pit->GetOrigin().z + pit->GetFDepth() * 0.5f;
-  /* al game over la camera orbita: la convergenza perde senso e la scritta
-     e' a profondita' schermo, quindi schermo piatto (niente stereo) */
-  gEffPx = (g->gameMode == GAME_OVER) ? 0.0f : gStereoPx;
+  /* disparita' zero sulla bocca del pozzo (piano dello schermo, come
+     l'HUD): il pozzo sprofonda dietro il vetro */
+  gConvZ = pit->GetOrigin().z;
+  gEffPx = (g->gameMode == GAME_OVER) ? 0.0f : r_stereo_px();
+  gEye = eye ? 1 : 0;
 
-  buildEyeView(viewSrc, eye, 0.0f);
-  memcpy(gView, gV, 16 * sizeof(float));
+  memcpy(gView, viewSrc, sizeof(gView));
   setModel(NULL);
 
-  int zbuf = g->endAnimStarted ? 1 : 0;
-  int renderCube = g->endAnimStarted ? 1 : (g->gameMode != GAME_PAUSED ? 1 : 0);
+  int orbit = g->endAnimStarted ? 1 : 0;
+  int renderCube = orbit || g->gameMode != GAME_PAUSED;
 
   GLMATERIAL *backMat = pit->GetBackMaterial();
-  GLMATERIAL *gridMat = pit->GetGridMaterial();
-  uint32_t gridCol = opaque(ambColor(gridMat));
-  uint32_t blkCol = r_color(0, 0, 0, 255);
+  uint32_t gridCol = ambColor(pit->GetGridMaterial());
+  /* lampo del reticolo quando si completano strati (verde -> bianco) */
+  if (gFlash > 0.0f) {
+    float k = gFlash;
+    int r = (int)((gridCol & 0xFF) + (255 - (int)(gridCol & 0xFF)) * k);
+    int gg = (int)(((gridCol >> 8) & 0xFF) + (255 - (int)((gridCol >> 8) & 0xFF)) * k);
+    int b = (int)(((gridCol >> 16) & 0xFF) + (255 - (int)((gridCol >> 16) & 0xFF)) * k);
+    gridCol = r_color(r, gg, b, 255);
+  }
 
   /* Pit::Render(STYLE_CLASSIC): sideList e backList solo senza z-buffer */
-  if (!zbuf) {
+  if (!orbit) {
     drawSideRing(pit);
     drawBack(pit, backMat);
   }
-  drawGrid(pit, gridCol, 1.0f);
+  drawGrid(pit, gridCol);
 
   if (renderCube) {
-    drawPitCubes(pit, gridCol, blkCol, zbuf);
+    if (orbit) drawPitCubesSorted(pit, gridCol);
+    else       drawPitCubes(pit, gridCol);
   }
 
-  /* Il pezzo corrente non viene disegnato in pausa/game over (originale) */
   if (g->gameMode != GAME_PAUSED && g->gameMode != GAME_OVER) {
-
     PolyCube *pc = &g->allPolyCube[g->pIdx];
-    setModel(g->matPiece);   /* g->mat include gia' matView (originale) */
+    setModel(g->matPiece);
 
-    GLMATERIAL whiteMat, redMat, grayMat, ghostMat;
-    memset(&whiteMat, 0, sizeof(whiteMat));
-    whiteMat.Ambient.r = whiteMat.Ambient.g = whiteMat.Ambient.b = 1.0f;
-    whiteMat.Diffuse.r = whiteMat.Diffuse.g = whiteMat.Diffuse.b = 1.0f;
-    memset(&redMat, 0, sizeof(redMat));
-    redMat.Ambient.r = 1.0f; redMat.Diffuse.r = 1.0f;
-    memset(&grayMat, 0, sizeof(grayMat));
-    grayMat.Ambient.r = grayMat.Ambient.g = grayMat.Ambient.b = 0.5f;
-    grayMat.Diffuse.r = grayMat.Diffuse.g = grayMat.Diffuse.b = 0.8f;
-    grayMat.Specular.r = grayMat.Specular.g = grayMat.Specular.b = 1.0f;
-    grayMat.Power = 20.0f;
-    memset(&ghostMat, 0, sizeof(ghostMat));
-    ghostMat.Ambient.r = ghostMat.Ambient.g = ghostMat.Ambient.b = 0.5f;
-    ghostMat.Diffuse.r = ghostMat.Diffuse.g = ghostMat.Diffuse.b = 0.5f;
-
-    /* ghost: trans = (ghost/FTRANS_MAX)*0.4, come in PolyCube::CreateGhost */
-    int trans = pc->GetGhost() ? (int)(0.4f * 255.0f) : 0;
-    if (trans > 0) {
-      uint32_t gc = r_color(128, 128, 128, trans);
-      drawPieceGhost(pc, 0.5f, gc);
+    /* ghost (transparent face): trans = (ghost/FTRANS_MAX)*0.4 */
+    if (pc->GetGhost()) {
+      int a = (int)(0.4f * 255.0f * (float)g->transparent / (float)FTRANS_MAX);
+      if (a < 30) a = 30;
+      drawPieceGhost(pc, r_color(128, 128, 128, a), r_color(80, 80, 80, a / 2));
     }
+    drawPieceCubes(pc, g->redMode != 0, g->lineWidth);
 
-    drawPieceCubes(pc, &whiteMat, &redMat, &grayMat, g->redMode != 0,
-                   g->lineWidth);
-  }
-
-  /* pratica: ghost dell'AI con matAI (0.75s dopo ComputeHelp) */
-  if (g->practiceFlag && g->startShowAI > 0.0f) {
-    if ((g->curTime - g->startShowAI) < 0.75f) {
-      PolyCube *pc = &g->allPolyCube[g->pIdx];
+    /* pratica: suggerimento dell'IA per 0.75 s */
+    if (g->practiceFlag && g->startShowAI > 0.0f && (g->curTime - g->startShowAI) < 0.75f) {
       setModel(g->matAIPiece);
-      uint32_t gc = r_color(128, 128, 128, 102);
-      drawPieceGhost(pc, 0.4f, gc);
+      drawPieceGhost(pc, r_color(80, 255, 80, 90), r_color(40, 140, 40, 60));
+      int nE = pc->GetNbEdge();
+      EDGE *ed = pc->GetEdges();
+      float cS = pc->GetCubeSide();
+      VERTEX org = pc->GetOrigin();
+      for (int i = 0; i < nE; i++)
+        drawLineW(ed[i].p1.x * cS + org.x, ed[i].p1.y * cS + org.y, ed[i].p1.z * cS + org.z,
+                  ed[i].p2.x * cS + org.x, ed[i].p2.y * cS + org.y, ed[i].p2.z * cS + org.z,
+                  r_color(85, 255, 85, 255), 1.0f);
     }
-  }
 
-  if (g->startSpark != 0.0f &&
-      g->gameMode != GAME_PAUSED && g->gameMode != GAME_OVER)
-    drawSpark(g);
+    if (g->startSpark != 0.0f) drawSpark(g);
+  }
 }
 
 /* ------------------------------------------------------------------ */
-/* Schermo basso: dettagli partita (l'originale li aveva nel menu /
-   nella pagina dei punteggi, qui sempre visibile)                      */
+/* Schermo basso durante la partita                                     */
 /* ------------------------------------------------------------------ */
 
 void renderBottomUI(Game *g) {
-  gScreen = 1;
-  gPitX = 0; gPitY = 0; gPitW = 320; gPitH = 240;
-
-  float cx = 160.0f;
   char buf[64];
+  const float cx = 160.0f;
 
   if (g->gameMode == GAME_OVER) {
-    r_text(cx, 12, 20, COL_RED, "GAME OVER", 1, 0);
-    snprintf(buf, sizeof(buf), "SCORE %d", g->score.score);
-    r_text(cx, 44, 14, COL_WHITE, buf, 1, 0);
-    snprintf(buf, sizeof(buf), "CUBES %d", g->score.nbCube);
-    r_text(cx, 64, 12, COL_WHITE, buf, 1, 0);
-    snprintf(buf, sizeof(buf), "1x%d  2x%d  3x%d  4x%d  5x%d",
-             g->score.nbLine1, g->score.nbLine2, g->score.nbLine3,
-             g->score.nbLine4, g->score.nbLine5);
-    r_text(cx, 84, 12, COL_GREEN, buf, 1, 0);
-    snprintf(buf, sizeof(buf), "LEVEL %d   %s", g->score.startLevel,
-             g->setupManager->GetBlockSetName());
-    r_text(cx, 104, 12, COL_WHITE, buf, 1, 0);
-    int gsecs = (int)(g->curTime - g->startGameTime);
+    ui_box(4.0f, 4.0f, 312.0f, 232.0f, E_LRED, E_BLACK, " GAME OVER ", E_YELLOW);
+    r_print(cx, 30.0f, 1, UI_LABEL, "FINAL SCORE", 1);
+    snprintf(buf, sizeof(buf), "%ld", (long)g->score.score);
+    r_print(cx, 46.0f, 3, UI_VALUE, buf, 1);
+    snprintf(buf, sizeof(buf), "%ld", (long)g->score.nbCube);
+    ui_kv(40.0f, 90.0f, 240.0f, "CUBES PLAYED", buf, UI_LABEL, E_WHITE);
+    snprintf(buf, sizeof(buf), "%d", g->level);
+    ui_kv(40.0f, 104.0f, 240.0f, "LEVEL", buf, UI_LABEL, E_WHITE);
+    int gsecs = (int)(g->score.gameTime);
+    if (gsecs <= 0) gsecs = (int)(g->curTime - g->startGameTime);
     if (gsecs < 0) gsecs = 0;
-    snprintf(buf, sizeof(buf), "TIME %d:%02d", gsecs / 60, gsecs % 60);
-    r_text(cx, 124, 12, COL_WHITE, buf, 1, 0);
-    if (g->demoFlag || g->practiceFlag)
-      r_text(cx, 160, 13, COL_GREEN, "A / START: retry   SELECT: exit", 1, 0);
-    else
-      r_text(cx, 160, 13, COL_GREEN, "START: back to menu   SELECT: exit", 1, 0);
+    snprintf(buf, sizeof(buf), "%d:%02d", gsecs / 60, gsecs % 60);
+    ui_kv(40.0f, 118.0f, 240.0f, "TIME", buf, UI_LABEL, E_WHITE);
+    if (ui_blink(g->curTime, 1.0f))
+      r_print(cx, 200.0f, 1, E_WHITE,
+              (g->demoFlag || g->practiceFlag) ? "PRESS A OR START" : "PRESS START", 1);
     return;
   }
 
-  r_text(cx, 8, 15, COL_GREEN, "BlockOut 3DS", 1, 0);
+  ui_box(4.0f, 4.0f, 312.0f, 232.0f, UI_FRAME, E_BLACK, " BLOCKOUT ", E_YELLOW);
 
-  snprintf(buf, sizeof(buf), "Level %d - %s - %dx%dx%d", g->level,
-           g->setupManager->GetBlockSetName(),
+  /* partita: tempo + linee per numero di strati tolti insieme */
+  int secs = (int)(g->curTime - g->startGameTime);
+  if (secs < 0) secs = 0;
+  snprintf(buf, sizeof(buf), "%02d:%02d", secs / 60, secs % 60);
+  ui_kv(16.0f, 18.0f, 288.0f, "TIME", buf, UI_LABEL, E_WHITE);
+
+  const int32_t *nb[5] = { &g->score.nbLine1, &g->score.nbLine2, &g->score.nbLine3,
+                           &g->score.nbLine4, &g->score.nbLine5 };
+  static const char *ln[5] = { "SINGLE", "DOUBLE", "TRIPLE", "QUAD", "PENTA" };
+  static const uint32_t lc[5] = { E_LBLUE, E_LGREEN, E_LCYAN, E_LRED, E_LMAGENTA };
+  long tot = 0;
+  for (int i = 0; i < 5; i++) tot += (long)(*nb[i]) * (i + 1);
+  snprintf(buf, sizeof(buf), "%ld", tot);
+  ui_kv(16.0f, 32.0f, 288.0f, "LAYERS CLEARED", buf, UI_LABEL, E_WHITE);
+  for (int i = 0; i < 5; i++) {
+    float x = 16.0f + i * 58.0f;
+    r_print(x + 24.0f, 50.0f, 1, lc[i], ln[i], 1);
+    snprintf(buf, sizeof(buf), "%ld", (long)*nb[i]);
+    r_print(x + 24.0f, 62.0f, 1, (*nb[i] > 0) ? E_WHITE : E_DGRAY, buf, 1);
+  }
+
+  ui_hline(12.0f, 80.0f, 308.0f, E_BLUE);
+
+  r_print(16.0f, 88.0f, 1, UI_LABEL, "CONTROLS", 0);
+  ui_key_hint(16.0f, 102.0f, "D-PAD", "MOVE");
+  ui_key_hint(164.0f, 102.0f, "A", "DROP");
+  ui_key_hint(16.0f, 116.0f, "B X Y", "ROTATE Z X Y");
+  ui_key_hint(164.0f, 116.0f, "R+BXY", "REVERSE");
+  ui_key_hint(16.0f, 130.0f, "L+PAD", "DIAGONAL");
+  ui_key_hint(164.0f, 130.0f, "START", "PAUSE");
+  ui_key_hint(16.0f, 144.0f, "ZR", "3D DEPTH");
+  ui_key_hint(164.0f, 144.0f, "SELECT", "QUIT");
+  if (g->practiceFlag) ui_key_hint(16.0f, 158.0f, "ZL", "HINT");
+
+  ui_hline(12.0f, 176.0f, 308.0f, E_BLUE);
+
+  snprintf(buf, sizeof(buf), "%s  %dx%dx%d", g->setupManager->GetBlockSetName(),
            g->thePit.GetWidth(), g->thePit.GetHeight(), g->thePit.GetDepth());
-  r_text(cx, 28, 12, COL_WHITE, buf, 1, 0);
-
-  snprintf(buf, sizeof(buf), "Lines: 1x%d 2x%d 3x%d 4x%d 5x%d",
-           g->score.nbLine1, g->score.nbLine2, g->score.nbLine3,
-           g->score.nbLine4, g->score.nbLine5);
-  r_text(cx, 46, 12, COL_GREEN, buf, 1, 0);
-
-  if (g->demoFlag)      r_text(cx, 64, 12, COL_RED, "DEMO (AI)", 1, 0);
-  else if (g->practiceFlag) r_text(cx, 64, 12, COL_RED, "PRACTICE", 1, 0);
-  else if (g->gameMode == GAME_PAUSED) r_text(cx, 64, 12, COL_RED, "PAUSED", 1, 0);
-  else r_text(cx, 64, 12, COL_WHITE, "GAME IN PROGRESS", 1, 0);
-
-  r_line(12.0f, 82.0f, 308.0f, 82.0f, 1.0f, COL_GRAY);
-  r_text(12, 88, 11, COL_GREEN, "CONTROLS", 0, 0);
-
-  /* left column: movement and drop */
-  r_text(12, 104, 11, COL_WHITE, "D-pad/stick: move", 0, 0);
-  r_text(12, 120, 11, COL_WHITE, "L + D-pad: diagonals", 0, 0);
-  r_text(12, 136, 11, COL_WHITE, "A: drop", 0, 0);
-  r_text(12, 152, 11, COL_WHITE, "START: pause   SELECT: exit", 0, 0);
-  /* right column: rotations and extras */
-  r_text(172, 104, 11, COL_WHITE, "B/X/Y: rotate", 0, 0);
-  r_text(172, 120, 11, COL_WHITE, "R + rot.: reverse", 0, 0);
-  r_text(172, 136, 11, COL_WHITE, "ZL: hint (practice)", 0, 0);
-  r_text(172, 152, 11, COL_WHITE, "ZR: 3D  L+R+START: sound", 0, 0);
-
-  r_text(12, 200, 11, COL_GREEN, "BlockOut II 2.5 GPL - Jean-Luc PONS", 0, 0);
-  snprintf(buf, sizeof(buf), "faces %s", g->transparent ? "transparent" : "opaque");
-  r_text(308, 200, 11, COL_GRAY, buf, 2, 0);
+  r_print(cx, 186.0f, 1, E_WHITE, buf, 1);
+  snprintf(buf, sizeof(buf), "3D %s   SOUND %s",
+           gStereoPx > 0.0f ? "ON" : "OFF", g->setupManager->GetSound() ? "ON" : "OFF");
+  r_print(cx, 202.0f, 1, UI_DIM, buf, 1);
+  const char *mode = g->demoFlag ? "DEMO" : g->practiceFlag ? "PRACTICE" : "GAME";
+  r_print(cx, 218.0f, 1, g->demoFlag ? E_LMAGENTA : E_LGREEN, mode, 1);
 }
 
-/* ------------------------------------------------------------------ */
-/* Entry point del gioco                                                */
-/* ------------------------------------------------------------------ */
-
 void render_game(Game *g) {
-
   if (!g->inited) return;
 
-  /* Game::Create(): le stesse formule di viewport dell'originale, ma
-     riferite allo schermo superiore 400x240. pitView.y resta bottom-left
-     perche' Game::StartSpark() lo usa in quella convenzione.            */
-  float scrW = 400.0f, scrH = 240.0f;
-  float pvx  = roundf(scrW * 0.0889f);
-  float pvy0 = roundf(scrH * 0.0183f);
-  float pvw  = roundf(scrW * 0.7197f);
-  float pvh  = roundf(scrH * 0.9596f);
-  float pvy  = scrH - (pvh + pvy0);         /* glViewport: bordo inferiore */
-  float pvTop = scrH - (pvy + pvh);         /* top-left per il renderer    */
+  /* viewport del pozzo quadrato come l'originale; pitView.y e' in
+     convenzione bottom-left perche' Game::StartSpark() la usa cosi' */
+  g->SetPitViewport((int)PIT_X, (int)(240.0f - (PIT_Y + PIT_S)), (int)PIT_S, (int)PIT_S);
 
-  g->SetPitViewport((int)pvx, (int)pvy, (int)pvw, (int)pvh);
+  /* strati completati dall'ultimo frame -> lampo di 0.35 s */
+  static long lastLayers = 0;
+  static float flashStart = -10.0f;
+  long layers = g->score.nbLine1 + 2L * g->score.nbLine2 + 3L * g->score.nbLine3 +
+                4L * g->score.nbLine4 + 5L * g->score.nbLine5;
+  if (layers > lastLayers) flashStart = g->curTime;
+  lastLayers = layers;
+  float ft = g->curTime - flashStart;
+  gFlash = (ft >= 0.0f && ft < 0.35f && g->gameMode != GAME_PAUSED) ? 1.0f - ft / 0.35f : 0.0f;
 
   for (int eye = 0; eye < 2; eye++) {
     render_begin_top(eye);
-    gScreen = 0;
-
-    gPitX = pvx; gPitY = pvTop; gPitW = pvw; gPitH = pvh;
-
+    gPitX = PIT_X; gPitY = PIT_Y; gPitW = PIT_S; gPitH = PIT_S;
     renderPitView(g, eye);
-
-    /* HUD e colonna del livello (spriteView = schermo intero) */
-    renderHud(g);
+    renderPracticeHelp(g);
     drawPitLevel(g);
+    renderHud(g);
     renderGameModeOverlay(g);
-
-    render_flush();
   }
 
   render_begin_bottom();
   renderBottomUI(g);
-  render_flush();
 }

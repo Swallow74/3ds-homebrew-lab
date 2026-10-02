@@ -106,6 +106,8 @@ class Game {
     friend void renderGameModeOverlay(Game *g);
     friend void renderPitView(Game *g, int eye);
     friend void renderBottomUI(Game *g);
+    friend void renderPracticeHelp(Game *g);
+    friend int runMenuScreen(Game *game, SetupManager *sm);
 
   private:
 

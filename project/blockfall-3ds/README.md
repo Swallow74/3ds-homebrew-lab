@@ -16,3 +16,7 @@ in `sd:/3ds/blockfall-3ds/`, avvia da Homebrew Launcher (hbmenu).
 Comandi: D-Pad muovi / Giu veloce, A/Su ruota, B hard drop, START esci.
 A su GAME OVER = ricomincia. Punteggio stile guideline
 (100/300/500/800 × livello, livello ogni 10 linee), bag 7 pezzi.
+
+## Licenza
+
+GNU GPL v2 o successiva (vedi `COPYING`). Copyright (C) 2026 Alessandro Del Rosso.

@@ -73,6 +73,14 @@ public:
   void SetSoundType(int stype);
   int GetSoundType();
 
+  // Opzioni del port 3DS (campi accodati a setup.dat, facoltativi)
+  void SetMusic(BOOL on);
+  BOOL GetMusic();
+  void SetPieceFill(int on);
+  int GetPieceFill();
+  void SetStereo(int level);          // 0..4 (0 = 2D)
+  int GetStereo();
+
   // Line width (stile ARCADE)
   void SetLineWidth(int width);
   int GetLineWidth();
@@ -122,6 +130,9 @@ private:
   BYTE keyRx2;
   BYTE keyRy2;
   BYTE keyRz2;
+  int32 playMusic;
+  int32 pieceFill;
+  int32 stereoLevel;
 
   SCOREREC *scoreList;
 };

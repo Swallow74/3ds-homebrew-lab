@@ -31,8 +31,6 @@ void BotPlayer::InitPolyCube() {
 
 int Game::InitPolyCube(BOOL transparent, float wEdge) {
 
-  int hr;
-
 #endif
 
   // Initialise polycube orientations (needed by the AI player)

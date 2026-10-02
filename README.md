@@ -1,13 +1,15 @@
-# 3DS Homebrew — workspace macOS
+# 3DS Homebrew Lab
 
 Cartella pronta per sviluppare app Nintendo 3DS con output `.3dsx` (Homebrew Launcher)
 e installer `.cia` / immagine `.3ds`.
 
 ```
-3ds-hb/
+3ds-homebrew-lab/
 ├── project/
 │   ├── _template/     ← NON modificare: base per new-app.sh (Makefile 3dsx+cia+3ds)
-│   └── hello-3ds/     ← esempio minimo, compila per verificare la toolchain
+│   ├── blockout-3ds/  ← BlockOut 3DS (tratto da BlockOut II, GPL)
+│   ├── blockfall-3ds/ ← Blockfall 3DS (puzzle a blocchi che cadono)
+│   └── runner-3ds/    ← Neon Rush 3DS (runner 3D)
 ├── tools/
 │   ├── env.sh               ← source tools/env.sh (DEVKITPRO/DEVKITARM/PATH)
 │   ├── install-toolchain.sh ← setup una tantum (richiede sudo)
@@ -21,15 +23,15 @@ e installer `.cia` / immagine `.3ds`.
 ## Avvio rapido
 
 ```bash
-cd "/Volumes/Kingstone/Progetti/3ds-hb"
+cd 3ds-homebrew-lab
 
 # 1. Toolchain (una tantum, chiede password sudo + reboot alla fine)
 ./tools/install-toolchain.sh
 
 # 2. Prova build
-cd project/hello-3ds
+cd project/blockfall-3ds
 source ../../tools/env.sh
-make        # output/hello-3ds.3dsx
+make        # output/blockfall-3ds.3dsx
 make cia    # solo con makerom+bannertool (vedi notes/CIA-vs-3DSX.md)
 
 # 3. Nuova app
@@ -45,3 +47,10 @@ cd ../..
 - Mai usare percorsi con spazi nei progetti (i Makefile devkitPro non li supportano)
 
 Dettagli: `notes/TOOLCHAIN.md`, `notes/CIA-vs-3DSX.md`, `notes/WORKFLOW.md`.
+
+## Licenza
+
+Tutti i giochi sono rilasciati con licenza **GNU GPL v2 o successiva** (testo in `COPYING`).
+BlockOut 3DS è un porting liberamente ispirato a *BlockOut II 2.5* di Jean-Luc Pons (GPL),
+scaricabile da https://www.blockout.net/blockout2/. "BlockOut" è un marchio registrato di
+Kadon Enterprises, Inc., usato solo per identificare il gioco originale.

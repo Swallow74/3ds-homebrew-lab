@@ -137,7 +137,7 @@ BOOL PolyCube::EdgeExist(EDGE e) {
 
 BOOL PolyCube::IsEdgeVisible(int cubeIdx,int edge) {
 
-  BOOL e1,e2,e3;
+  BOOL e1 = FALSE, e2 = FALSE, e3 = FALSE;
 
   int x = cubes[cubeIdx].x;
   int y = cubes[cubeIdx].y;

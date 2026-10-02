@@ -54,4 +54,4 @@ echo "devkitPro NON li distribuisce via pacman. Se 'which makerom bannertool' è
 echo "  1. vedi notes/CIA-vs-3DSX.md per sorgenti/prebuild e installazione in \$DEVKITARM/bin"
 echo "  2. su Apple Silicon potrebbero essere binari x86_64: abilita Rosetta 2 con: softwareupdate --install-rosetta"
 echo ""
-echo "FATTO. Prossimo passo: cd project/hello-3ds && source ../../tools/env.sh && make"
+echo "FATTO. Prossimo passo: cd project/blockfall-3ds && source ../../tools/env.sh && make"

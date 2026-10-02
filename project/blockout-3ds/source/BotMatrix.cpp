@@ -4,12 +4,15 @@
   Program:     BlockOut
   Author:      Jean-Luc PONS
 
-  Port 3DS: copiato verbatim da BotMatrix.cpp di BlockOut II 2.5 (matrici di rotazione della AI).
-
   This program is free software; you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
   the Free Software Foundation; either version 2 of the License, or
   (at your option) any later version.
+
+  Port 3DS: copiato verbatim da BotMatrix.cpp di BlockOut II 2.5. Le matrici
+  sono quelle originali: una versione precedente del port le aveva invertite
+  e la IA (demo/pratica) calcolava posizioni sbagliate e non completava mai
+  uno strato.
 
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of

@@ -23,14 +23,19 @@ void audio_init(void);
 void audio_exit(void);
 bool audio_ok(void);
 
-/* SoundManager::SetEnable */
+/* Effetti on/off (SoundManager::SetEnable) */
 void audio_set_enable(bool enable);
 bool audio_enabled(void);
 
+/* Stile degli effetti: 0 = BlockOut II, 1 = BlockOut DOS (onda quadra) */
+void audio_set_style(int dos);
+/* Strati completati dall'ultimo pezzo (1..5): usato da audio_line*() */
+void audio_set_lines(int n);
+
 /* Suoni di menu */
-void audio_blub(void);            /* cambio pagina / modifica opzione */
-void audio_wozz(void);            /* il cursore "entra" */
-void audio_tchh(void);            /* ritorno / movimento nel menu */
+void audio_blub(void);            /* modifica di un valore */
+void audio_wozz(void);            /* conferma */
+void audio_tchh(void);            /* movimento del cursore */
 
 /* Suoni di gioco (SOUND_BLOCKOUT2) */
 void audio_line(void);
@@ -44,12 +49,17 @@ void audio_level2(void);
 void audio_empty2(void);
 void audio_welldone2(void);
 
-/* Pezzo fermo contro un blocco (StartSpark) */
+/* Pezzo fermo contro un blocco (StartSpark) / fine partita */
 void audio_hit(void);
+void audio_over(void);
 
-/* Musica della pagina Credits (loop) */
-void audio_music(void);
+/* Musica in tempo reale (music.c): MUS_TITLE / MUS_GAME / MUS_OVER */
+void audio_music(int song);
 void audio_stop_music(void);
+void audio_music_enable(bool on);
+bool audio_music_enabled(void);
+void audio_music_tempo(float mul);
+void audio_music_duck(bool on);
 
 # ifdef __cplusplus
 }

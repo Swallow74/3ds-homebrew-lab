@@ -41,10 +41,15 @@ public:
   void PlayEmpty2();
   void PlayWellDone2();
   void PlayHit();
+  void PlayOver();
 
-  // Demo music
-  void PlayMusic();
+  // Strati completati insieme (per la frase del suono di linea)
+  void SetLineCount(int n);
+
+  // Musica (MUS_TITLE / MUS_GAME / MUS_OVER di music.h)
+  void PlayMusic(int song);
   void StopMusic();
+  void SetMusicTempo(float mul);
 
   // Get error message
   char *GetErrorMsg();

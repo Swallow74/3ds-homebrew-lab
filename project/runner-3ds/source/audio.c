@@ -1,3 +1,16 @@
+/*
+ * Copyright (C) 2026 Alessandro Del Rosso
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
 /* Audio NDSP (servizio DSP::DSP) - musica a loop + effetti sintetizzati.
  *
  * REGOLE FONDAMENTALI (fonte: libctru/source/ndsp/ndsp-channel.c):
@@ -16,14 +29,8 @@
  *   I buffer PCM devono stare in linear memory (DSP::DSP legge RAM tramite
  *   MMU propria) + CacheFlush prima di avviarli.
  *
- * MUSICA: 8 battute (64 ottavi, ~13.7 s) per traccia, due tracce.  Ogni
- * traccia e' in due sezioni: A (battute 0-3, arpeggio registro basso) e B
- * (battute 4-7, arpeggio in registro alto + armonica di terza, basso con
- * rimbusso, cassa in piu', piatti su tutti gli ottavi).  In piu' il pad
- * dell'accordo (3 note lunghe), un shimmer d'ottava e un fill di tom+rullante
- * negli ultimi tre ottavi di ogni mezzo giro.  Gli strati sono spostati a
- * sinistra/destra (pan) per avere un mix largo: lead centro-sinistra,
- * shimmer e piatti a destra, pad e armonica spalleggiati, cassa al centro.
+ * MUSICA: vedi music.c (sequencer + synth in tempo reale su CH_MUSIC,
+ * thread proprio svegliato dalla callback NDSP).  Qui restano gli effetti.
  *
  * OSCILLATORE: tabella di 4096 punti con interpolazione lineare, invece di
  * sinf/asin chiamate per campione (lento su ARM11).  Le decadere sono rese
@@ -32,27 +39,22 @@
  */
 
 #include "audio.h"
+#include "music.h"
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
 
 #define SR            22050                 /* SampleRate */
 #define CH_MUSIC      0
-#define NSFX          4                     /* canali effetti: 1..4 */
+#define NSFX          6                     /* canali effetti: 1..6 */
 #define CH_SFX_BASE   1
-#define BPM           140
-#define EIGHTH        ((double)SR * 60.0 / (double)BPM / 2.0)  /* ~4725 frames */
-#define MEL_NOTES     64                    /* ottavi del loop: 8 battute */
-#define MUSIC_FRAMES  ((size_t)(MEL_NOTES * EIGHTH))
 #define SFX_MAX       ((size_t)(SR * 0.45)) /* frames disponibili per effetto */
 
 static bool     g_ok = false;
-static bool     g_music = false;
-static int      g_track = 0;
+static bool     g_musicPref = true;   /* scelta dell'utente (menu/SELECT) */
+static int      g_sfxParam = 0;       /* parametro dell'effetto (es. nota moneta) */
 
-static s16        *g_musicBuf[2];
 static s16        *g_sfxBuf[NSFX];
-static ndspWaveBuf g_mbuf[2];       /* un wavebuf per traccia: 0 e 1 */
 static ndspWaveBuf g_sbuf[NSFX];    /* un wavebuf per canale effetto */
 static int         g_sfxNext = 0;
 
@@ -81,11 +83,6 @@ static double osc(double ph)
 }
 
 /* --------------------------------------------------------------- misc */
-
-static double freq_of(int semitoni)
-{
-	return 440.0 * pow(2.0, (double)semitoni / 12.0);
-}
 
 static int clamp_s(double v)
 {
@@ -240,122 +237,10 @@ static void add_kick(s16 *st, size_t total, size_t start, double vol, double pan
 	}
 }
 
-/* ------------------------------------------------------------------ musica */
-
-/* Triadi: radice in semitoni dal LA (A = -12 = LA sotto il middle C). */
-typedef struct { s8 root; s8 third; s8 fifth; } Chord;
-#define CH_MIN(r) { r, 3, 7 }
-#define CH_MAJ(r) { r, 4, 7 }
-
-/* Traccia 0: Am F C G | Am F G Am    Traccia 1: Dm Bb F C | F C Bb Am */
-static const Chord prog0[8] = {
-	CH_MIN(-12), CH_MAJ(-4), CH_MAJ(-9), CH_MAJ(-2),
-	CH_MIN(-12), CH_MAJ(-4), CH_MAJ(-2), CH_MIN(-12),
-};
-static const Chord prog1[8] = {
-	CH_MIN(-7),  CH_MAJ(-2), CH_MAJ(-4), CH_MAJ(-9),
-	CH_MAJ(-4),  CH_MAJ(-9), CH_MAJ(-2), CH_MIN(-12),
-};
-
-/* Contorni d'arpeggio sugli 8 ottavi della battuta: sezione A in registro
- * basso, sezione B un'ottava piu' su' (piu' energia, si sente il cambio). */
-static const s8 arpA[8] = { 0, 3, 7, 12, 12, 7, 3, 0 };
-static const s8 arpM[8] = { 0, 4, 7, 12, 12, 7, 4, 0 };
-static const s8 brpA[8] = { 12, 15, 19, 15, 12, 7, 3, 0 };
-static const s8 brpM[8] = { 12, 16, 19, 16, 12, 7, 4, 0 };
-
-static void render_track(s16 *st, int track)
-{
-	const size_t total = MUSIC_FRAMES;
-	const Chord *prog = track ? prog1 : prog0;
-
-	memset(st, 0, total * 2 * sizeof(s16));
-
-	for (int i = 0; i < MEL_NOTES; i++)
-	{
-		const int bar = i / 8, s = i % 8;
-		const Chord *c = &prog[bar];
-		const int secB = (bar >= 4);
-		const int min  = (c->third == 3);
-		const s8 *arp = secB ? (min ? brpA : brpM) : (min ? arpA : arpM);
-		const size_t start = (size_t)(i * EIGHTH);
-		if (start >= total) break;
-
-		const int note = c->root + arp[s];
-
-		/* lead (centro-leggero sinistra) + shimmer d'ottava (destra) */
-		add_tone(st, total, start, freq_of(note),
-		         (size_t)(EIGHTH * (secB ? 0.72 : 0.80)),
-		         0.235, 0.004, 0.030, 0, -0.25);
-		add_tone(st, total, start, freq_of(note + 12),
-		         (size_t)(EIGHTH * 0.40), secB ? 0.085 : 0.068,
-		         0.004, 0.020, 2, 0.45);
-
-		/* armonica di terza sopra il lead: solo sezione B, spalleggiata */
-		if (secB)
-			add_tone(st, total, start, freq_of(note + c->third),
-			         (size_t)(EIGHTH * 0.45), 0.075, 0.004, 0.030, 0, 0.60);
-
-		/* pad dell'accordo: tre note lunghe, attaccate al primo ottavo */
-		if (s == 0) {
-			static const double padPan[3] = { -0.40, 0.15, 0.55 };
-			s8 n3[3];
-			n3[0] = (s8)(c->root - 12);
-			n3[1] = (s8)(c->root - 12 + c->third);
-			n3[2] = (s8)(c->root - 12 + c->fifth);
-			for (int k = 0; k < 3; k++)
-				add_tone(st, total, start, freq_of(n3[k]),
-				         (size_t)(EIGHTH * 7.4), secB ? 0.050 : 0.038,
-				         0.06, 0.25, 1, padPan[k]);
-		}
-
-		/* basso sulle crome, con rimbusso d'ottava in coda a sezione B */
-		if (i % 2 == 0)
-			add_tone(st, total, start, freq_of(c->root - 24),
-			         (size_t)(EIGHTH * 1.6), 0.27, 0.006, 0.060, 1, 0.0);
-		if (secB && s == 7)
-			add_tone(st, total, start, freq_of(c->root - 12),
-			         (size_t)(EIGHTH * 0.55), 0.14, 0.004, 0.030, 1, -0.30);
-
-		/* batteria: A = cassa su 1 e 3, rullante su 2 e 4, hi-hat in levare;
-		 * B = in piu' la cassa sull'ultimo ottavo, ghost note e hi-hat su
-		 * tutti gli ottavi (accentsi in levare) */
-		if (!secB) {
-			if (s == 0 || s == 4) add_kick(st, total, start, 0.40, 0.0);
-			if (s == 2 || s == 6)
-				add_noise(st, total, start, 0.06, 0.13, 70.0, 0.25);
-			if (s % 2 == 1)
-				add_noise(st, total, start, 0.025, 0.075, 190.0, 0.55);
-		} else {
-			if (s == 0 || s == 4) add_kick(st, total, start, 0.42, 0.0);
-			if (s == 7)           add_kick(st, total, start, 0.24, -0.20);
-			if (s == 2 || s == 6)
-				add_noise(st, total, start, 0.07, 0.155, 65.0, 0.25);
-			if (s == 7)
-				add_noise(st, total, start, 0.05, 0.055, 120.0, 0.35);
-			if (s % 2 == 1)
-				add_noise(st, total, start, 0.025, 0.085, 190.0, 0.55);
-			else
-				add_noise(st, total, start, 0.020, 0.042, 260.0, 0.55);
-		}
-
-		/* fill di tom + rullante negli ultimi tre ottavi di ogni mezzo giro */
-		if ((i % 32) >= 29) {
-			add_sweep(st, total, start,
-			          320.0 - 40.0 * (double)(i % 32 - 29), 150.0, 0.07,
-			          0.18, 1, 0.20);
-			add_noise(st, total, start, 0.04, 0.10, 90.0, 0.30);
-		}
-
-		/* piatto in apertura di ogni meta' del loop */
-		if (i == 0 || i == 32)
-			add_noise(st, total, start, 0.18, 0.09, 22.0, 0.50);
-	}
-}
-
 /* ------------------------------------------------------------------ effetti */
 
-enum { SX_MOVE, SX_JUMP, SX_BONUS, SX_CRASH, SX_START, SX_NUM };
+enum { SX_MOVE, SX_JUMP, SX_BONUS, SX_CRASH, SX_START, SX_COIN, SX_POWER,
+       SX_SHIELD, SX_SELECT, SX_GO, SX_NUM };
 
 static void gen_sfx(s16 *st, int type)
 {
@@ -404,7 +289,67 @@ static void gen_sfx(s16 *st, int type)
 		break;
 	}
 
+	case SX_COIN: {
+		/* "ding" a due note (quarta sopra): la catena alza il tono di un
+		 * semitono per moneta, fino a un'ottava */
+		double k = pow(2.0, (double)g_sfxParam / 12.0);
+		add_tone(st, total, 0, 1318.5 * k, (size_t)(SR * 0.05), 0.20, 0.001,
+		         0.02, 2, -0.10);
+		add_tone(st, total, (size_t)(SR * 0.045), 1760.0 * k,
+		         (size_t)(SR * 0.11), 0.22, 0.001, 0.08, 0, 0.10);
+		add_tone(st, total, (size_t)(SR * 0.045), 3520.0 * k,
+		         (size_t)(SR * 0.07), 0.05, 0.001, 0.05, 0, 0.40);
+		break;
+	}
+
+	case SX_POWER: {
+		add_sweep(st, total, 0, 440.0, 1760.0, 0.22, 0.20, 2, -0.30);
+		static const double n[3] = { 1046.5, 1318.5, 1568.0 };
+		for (int k = 0; k < 3; k++)
+			add_tone(st, total, (size_t)(SR * (0.12 + 0.05 * k)), n[k] * 2.0,
+			         (size_t)(SR * 0.12), 0.14, 0.002, 0.06, 0,
+			         -0.30 + 0.30 * k);
+		break;
+	}
+
+	case SX_SHIELD:
+		add_noise(st, total, 0, 0.25, 0.30, 12.0, 0.0);
+		add_sweep(st, total, 0, 1500.0, 300.0, 0.26, 0.24, 2, 0.0);
+		add_tone(st, total, 0, 196.0, (size_t)(SR * 0.25), 0.25, 0.002, 0.15,
+		         1, 0.0);
+		break;
+
+	case SX_SELECT:
+		add_tone(st, total, 0, 880.0, (size_t)(SR * 0.04), 0.20, 0.002, 0.02,
+		         2, -0.15);
+		add_tone(st, total, (size_t)(SR * 0.035), 1318.5,
+		         (size_t)(SR * 0.07), 0.20, 0.002, 0.05, 2, 0.15);
+		break;
+
+	case SX_GO:
+		add_tone(st, total, 0, g_sfxParam ? 1760.0 : 880.0,
+		         (size_t)(SR * (g_sfxParam ? 0.30 : 0.12)), 0.24, 0.003, 0.08,
+		         2, 0.0);
+		break;
+
 	default: break;
+	}
+}
+
+/* durata utile (in frame) di ogni effetto */
+static size_t sfx_len(int type)
+{
+	switch (type) {
+	case SX_CRASH:  return (size_t)(SR * 0.36);
+	case SX_BONUS:  return (size_t)(SR * 0.28);
+	case SX_START:  return (size_t)(SR * 0.42);
+	case SX_JUMP:   return (size_t)(SR * 0.16);
+	case SX_COIN:   return (size_t)(SR * 0.16);
+	case SX_POWER:  return (size_t)(SR * 0.34);
+	case SX_SHIELD: return (size_t)(SR * 0.30);
+	case SX_SELECT: return (size_t)(SR * 0.11);
+	case SX_GO:     return (size_t)(SR * 0.32);
+	default:        return (size_t)(SR * 0.08);
 	}
 }
 
@@ -424,27 +369,29 @@ static int free_sfx_slot(void)
 	return -1;
 }
 
-static void sfx_play(int type)
+/* force: se tutti i canali suonano, ruba il prossimo in round-robin
+ * (serve per il crash, che non deve mai sparire sotto una pioggia di monete) */
+static void sfx_play_ex(int type, bool force)
 {
 	if (!g_ok) return;
 
 	int s = free_sfx_slot();
-	if (s < 0) return;
+	if (s < 0) {
+		if (!force) return;
+		s = g_sfxNext;
+		g_sfxNext = (s + 1) % NSFX;
+	}
 
 	int ch = CH_SFX_BASE + s;
 
-	/* Il canale e' fermo: svuotarlo per ripulire lo stato DSP del canale. */
+	/* Il canale e' fermo (o rubato): svuotarlo ripulisce lo stato DSP. */
 	ndspChnWaveBufClear(ch);
 
 	/* memset => status = NDSP_WBUF_FREE (0). NON scrivere QUEUED qui! */
 	memset(&g_sbuf[s], 0, sizeof(ndspWaveBuf));
 	gen_sfx(g_sfxBuf[s], type);
 	g_sbuf[s].data_pcm16 = g_sfxBuf[s];
-	g_sbuf[s].nsamples   = (type == SX_CRASH) ? (size_t)(SR * 0.36) :
-	                       (type == SX_BONUS) ? (size_t)(SR * 0.28) :
-	                       (type == SX_START) ? (size_t)(SR * 0.42) :
-	                       (type == SX_JUMP)  ? (size_t)(SR * 0.16) :
-	                                            (size_t)(SR * 0.08);
+	g_sbuf[s].nsamples   = sfx_len(type);
 	g_sbuf[s].looping = false;
 
 	/* Flush dell'intero buffer: 64 byte allineato e size multipla di 8,
@@ -453,23 +400,9 @@ static void sfx_play(int type)
 	ndspChnWaveBufAdd(ch, &g_sbuf[s]);
 }
 
+static void sfx_play(int type) { sfx_play_ex(type, false); }
+
 /* ------------------------------------------------------------------ API */
-
-static void music_start_now(void)
-{
-	int t = g_track;
-
-	ndspChnWaveBufClear(CH_MUSIC);
-
-	memset(&g_mbuf[t], 0, sizeof(ndspWaveBuf));
-	g_mbuf[t].data_pcm16 = g_musicBuf[t];
-	g_mbuf[t].nsamples   = MUSIC_FRAMES;
-	g_mbuf[t].looping    = true;      /* loop ininterrotto gestito dal DSP */
-
-	ndspChnSetRate(CH_MUSIC, SR);
-	ndspChnSetMix(CH_MUSIC, s_mixStereo);
-	ndspChnWaveBufAdd(CH_MUSIC, &g_mbuf[t]);
-}
 
 void audio_init(void)
 {
@@ -481,29 +414,13 @@ void audio_init(void)
 	ndspSetOutputCount(2);
 	ndspSetMasterVol(0.85f);
 
-	for (int t = 0; t < 2; t++)
-		g_musicBuf[t] = linearMemAlign(MUSIC_FRAMES * 2 * sizeof(s16), 0x40);
 	for (int s = 0; s < NSFX; s++)
 		g_sfxBuf[s] = linearMemAlign(SFX_MAX * 2 * sizeof(s16), 0x40);
 
-	if (!g_musicBuf[0] || !g_musicBuf[1])
-	{ ndspExit(); return; }
 	for (int s = 0; s < NSFX; s++)
 		if (!g_sfxBuf[s]) { ndspExit(); return; }
 
 	osc_init();                       /* prima di generare qualsiasi PCM */
-	render_track(g_musicBuf[0], 0);
-	render_track(g_musicBuf[1], 1);
-	for (int t = 0; t < 2; t++)
-	{
-		DSP_FlushDataCache(g_musicBuf[t], MUSIC_FRAMES * 2 * sizeof(s16));
-
-		memset(&g_mbuf[t], 0, sizeof(ndspWaveBuf));
-		g_mbuf[t].data_pcm16 = g_musicBuf[t];
-		g_mbuf[t].nsamples   = MUSIC_FRAMES;
-		g_mbuf[t].looping    = true;
-	}
-
 	for (int s = 0; s < NSFX; s++)
 	{
 		memset(&g_sbuf[s], 0, sizeof(ndspWaveBuf));
@@ -523,41 +440,66 @@ void audio_init(void)
 	}
 
 	g_ok = true;
-	g_music = false;
-	g_track = 0;
+	/* la musica parte subito (tema del titolo) se l'utente la vuole */
+	music_enable(g_musicPref);
+	music_play(MUS_TITLE);
+	music_init(CH_MUSIC);
 }
 
 void audio_exit(void)
 {
 	if (!g_ok) return;
 	g_ok = false;
-	g_music = false;
+	music_exit();            /* prima il thread della musica */
+	/* ferma e svuota TUTTI i canali prima di chiudere il DSP: uscire con
+	 * wavebuf ancora in coda (musica in loop) puo' bloccare la console */
+	for (int ch = 0; ch <= CH_SFX_BASE + NSFX - 1; ch++) {
+		ndspChnWaveBufClear(ch);
+		ndspChnReset(ch);
+	}
+	svcSleepThread(50000000LL);     /* 50 ms: il DSP completa l'ultimo frame */
 	ndspExit();
+	for (int k = 0; k < NSFX; k++)
+		if (g_sfxBuf[k]) { linearFree(g_sfxBuf[k]); g_sfxBuf[k] = NULL; }
 }
 
 bool audio_ok(void) { return g_ok; }
 
 void audio_set_music(bool on)
 {
-	if (!g_ok || on == g_music) return;
-	g_music = on;
-
-	if (on)
-		music_start_now();
-	else
-		ndspChnWaveBufClear(CH_MUSIC);
+	g_musicPref = on;
+	music_enable(on);
 }
 
-bool audio_music_on(void) { return g_music; }
+void audio_music(int song) { music_play(song); }
+void audio_duck(bool on)   { music_duck(on); }
+
+bool audio_music_on(void) { return g_musicPref; }
 
 void audio_start(void)
 {
 	if (!g_ok) return;
 	sfx_play(SX_START);
-	if (!g_music) { g_music = true; music_start_now(); }
 }
 
-void audio_move(void)  { sfx_play(SX_MOVE); }
-void audio_jump(void)  { sfx_play(SX_JUMP); }
-void audio_bonus(void) { sfx_play(SX_BONUS); }
-void audio_crash(void) { sfx_play(SX_CRASH); }
+void audio_move(void)   { sfx_play(SX_MOVE); }
+void audio_jump(void)   { sfx_play(SX_JUMP); }
+void audio_bonus(void)  { sfx_play(SX_BONUS); }
+void audio_crash(void)  { sfx_play_ex(SX_CRASH, true); }
+void audio_power(void)  { sfx_play_ex(SX_POWER, true); }
+void audio_shield(void) { sfx_play_ex(SX_SHIELD, true); }
+void audio_select(void) { sfx_play(SX_SELECT); }
+
+void audio_coin(int step)
+{
+	g_sfxParam = step < 0 ? 0 : (step > 12 ? 12 : step);
+	sfx_play(SX_COIN);
+	g_sfxParam = 0;
+}
+
+void audio_go(bool last)
+{
+	g_sfxParam = last ? 1 : 0;
+	sfx_play(SX_GO);
+	g_sfxParam = 0;
+}

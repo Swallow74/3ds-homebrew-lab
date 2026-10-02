@@ -57,10 +57,19 @@ l'intero buffer: size allineata a 64 byte e multipla di 8.
   `add_sweep` (sweep f0→f1), `add_noise` (rumore passa-alto con decay),
   `add_kick` (cassa), `mix_pan` (guadagni pan senza cambio volume percepito).
 
-### Musica (solo runner)
+### Musica (solo runner) — `runner-3ds/source/music.{h,c}`
 
-2 tracce da 64 ottavi (~13.7 s), `looping=true`, avviate con
-`music_start_now()` su `CH_MUSIC`. `audio_start()` fa partire jingle + musica.
+Sequencer + synth in TEMPO REALE (non piu' loop pre-renderizzati): thread
+proprio (priorita' main-1, core -2) svegliato da `ndspSetCallback` via
+`LightEvent`, riempie a rotazione 3 wavebuf da 1024 frame su `CH_MUSIC`
+(~12 KB di linear memory).  Spartiti come stringhe: accordi per battuta +
+melodia `"E5 4 A5 4 ..."` (durate in sedicesimi, `r` = pausa); lo stile
+della sezione genera basso FM, arpeggio, pad, batteria e fill.
+API: `audio_music(MUS_TITLE/MUS_RUN/MUS_OVER)`, `audio_duck()`,
+`audio_set_music()`.  Uscita: `music_exit()` (join del thread) PRIMA di
+`ndspExit()`.  Test su PC: compilare `music.c` con `-DMUSIC_HOST` e usare
+`music_render()` per scrivere un WAV (`music_check()` = 0 se gli spartiti
+tornano a battute intere).
 
 ### Debug "non si sente niente"
 
@@ -162,3 +171,38 @@ di `x[5]` = una tripla `{x,y,z}` ma `x` e' `s8` non una tripla -> warning
 "excess elements in scalar initializer" e l'inizializzazione e' SBAGLIATA
 (solo `x[0]` viene riempito, gli altri array restano a zero). Usare
 l'inizializzazione "flat" sopra.
+
+### Clipping Sutherland-Hodgman in float: clamp di `t` in [0,1]
+
+`t = (e-va)/(vb-va)` con lato quasi parallelo al bordo (denominatore in
+scala ulp) esplode per roundoff e il vertice interpolato finisce a 1e12:
+sulla PICA diventa una "striscia gigante" attraverso lo schermo. Sintomo:
+dopo un po' (pozzo pieno = migliaia di clip/frame) il 3D si sputtana ma
+gioco e HUD restano vivi. Fix: `if (denom == 0) skip` + clamp di `t` in
+`[0,1]` (il t vero e' sempre li' dentro). Liang-Barsky per le linee e'
+autocorreggente (il punto cade sul bordo per costruzione) e non serve.
+
+## Lezioni da BlockOut 3DS (2026-09)
+
+- **Limite oggetti C2D per FRAME**: `C2D_Init(n)` dimensiona il vertex
+  buffer per l'intero frame (si svuota solo a `C3D_FrameEnd`), non per
+  flush. Due occhi + schermo basso + molte primitive = oltre 4096 e le
+  primitive in eccesso spariscono senza errori. BlockOut usa 24000.
+- **Tint delle immagini C2D ignorato** (verificato in Azahar, sia
+  `C2D_TintSolid` che `C2D_TintMult`): per testo bitmap colorato si crea una
+  texture del font per colore (cache). Font 8x8 pronto: `default_font_bin`
+  di libctru (`extern "C" const u8 default_font_bin[];`, 256 glifi CP437,
+  MSB = pixel sinistro). Texture RGBA8 128x128, tile 8x8 morton, riga 0
+  della memoria = v 1.0 (alto) -> nessun flip; u32 texel = R<<24|G<<16|B<<8|A;
+  filtro `GPU_NEAREST` + coordinate intere = testo nitido.
+- **Segno della disparita' stereo**: dietro lo schermo = immagini NON
+  incrociate (occhio sinistro piu' a sinistra). Con
+  `disp = px * (1 - conv/d)` si fa `x += (eye ? +0.5 : -0.5) * disp`.
+  Scalare `px` con `osGet3DSliderState()`.
+- **Verifica in emulatore senza toccare l'utente**: catturare la finestra
+  di Azahar per ID (`CGWindowListCopyWindowInfo` -> `screencapture -l <id>`),
+  lanciare con `open -g`, e pilotare il gioco con una build di autotest
+  (`make AT=1` in blockout-3ds). MAI tasti/click simulati: finiscono nella
+  finestra attiva dell'utente.
+- `make` senza `source tools/env.sh` fallisce con un messaggio senza la
+  parola "error": controllare che compaia "built ...".

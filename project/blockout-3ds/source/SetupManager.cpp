@@ -42,7 +42,10 @@ SetupManager::SetupManager() {
   transparentFace = 0;
   style = STYLE_CLASSIC;
   lineWidth = LINEW_MIN;
-  soundType = SOUND_BLOCKOUT2;
+  soundType = SOUND_BLOCKOUT;     // 3DS: effetti in stile DOS di default
+  playMusic = 1;
+  pieceFill = 0;                 // pezzo a solo filo, come l'originale
+  stereoLevel = 2;
 
   keyRx1 = 'Q';
   keyRy1 = 'W';
@@ -135,6 +138,13 @@ void SetupManager::SetSoundType(int stype) {
 }
 int SetupManager::GetSoundType() { return soundType; }
 
+void SetupManager::SetMusic(BOOL on) { playMusic = on ? 1 : 0; }
+BOOL SetupManager::GetMusic() { return playMusic ? TRUE : FALSE; }
+void SetupManager::SetPieceFill(int on) { pieceFill = on ? 1 : 0; }
+int SetupManager::GetPieceFill() { return pieceFill; }
+void SetupManager::SetStereo(int level) { stereoLevel = Saturate(level, 0, 4); }
+int SetupManager::GetStereo() { return stereoLevel; }
+
 void SetupManager::SetLineWidth(int width) {
   lineWidth = Saturate(width, LINEW_MIN, LINEW_MAX);
 }
@@ -169,8 +179,8 @@ BYTE SetupManager::GetKRz2() { return keyRz2; }
 
 BOOL SetupManager::Check(int w, int h, int d, int s) {
 
-  return ((w == pitWidth) && (h == pitHeight) ||
-          (h == pitWidth) && (w == pitHeight)) &&
+  return (((w == pitWidth) && (h == pitHeight)) ||
+          ((h == pitWidth) && (w == pitHeight))) &&
          (d == pitDepth) && (s == blockSet);
 }
 
@@ -191,7 +201,8 @@ char *SetupManager::GetName() {
   }
 
   // Generic name
-  sprintf(ret, "[%dx%dx%d,%s]", pitWidth, pitHeight, pitDepth, GetBlockSetName());
+  sprintf(ret, "[%ldx%ldx%ld,%s]", (long)pitWidth, (long)pitHeight,
+          (long)pitDepth, GetBlockSetName());
   return ret;
 }
 
@@ -462,6 +473,14 @@ void SetupManager::LoadSetup() {
       nbRead = (size_t)fread(&keyRy2, sizeof(BYTE), 1, file);
       nbRead = (size_t)fread(&keyRz2, sizeof(BYTE), 1, file);
 
+      // Campi del port 3DS (assenti nei file vecchi: restano i default)
+      int32 ext[3];
+      if (fread(ext, sizeof(int32), 3, file) == 3) {
+        playMusic = ext[0] ? 1 : 0;
+        pieceFill = ext[1] ? 1 : 0;
+        stereoLevel = Saturate(ext[2], 0, 4);
+      }
+
       // Saturate
       SetPitWidth(pitWidth);
       SetPitHeight(pitHeight);
@@ -509,6 +528,8 @@ void SetupManager::WriteSetup() {
       fwrite(&keyRx2, sizeof(BYTE), 1, file);
       fwrite(&keyRy2, sizeof(BYTE), 1, file);
       fwrite(&keyRz2, sizeof(BYTE), 1, file);
+      int32 ext[3] = { playMusic, pieceFill, stereoLevel };
+      fwrite(ext, sizeof(int32), 3, file);
     }
 
     fclose(file);

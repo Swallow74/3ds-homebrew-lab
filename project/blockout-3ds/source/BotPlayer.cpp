@@ -18,10 +18,9 @@
 */
 
 #include "BotPlayer.h"
-#include <malloc.h>
+#include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <math.h>
 
 // All possible 90 deg rotations => 24 orientations
@@ -743,6 +742,7 @@ void BotPlayer::DropBlock() {
     dropPos++;
     TranslateCube(0,0,1);
   } while( IsValidPos() );
+  (void)dropPos;
   dropPos--;
   TranslateCube(0,0,-1);
 

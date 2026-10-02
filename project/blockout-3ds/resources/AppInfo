@@ -1,6 +1,6 @@
 APP_TITLE = Blockout II 3DS
 APP_DESCRIPTION = Unofficial stereoscopic port of BlockOut II (GPL)
-APP_AUTHOR = Alessandro (adatta BlockOut II GPL)
+APP_AUTHOR = Alessandro (from BlockOut II, GPL)
 APP_PRODUCT_CODE = HB-BLOCKOUT3DS
 APP_UNIQUE_ID = 0x1B132
 APP_VERSION_MAJOR = 1

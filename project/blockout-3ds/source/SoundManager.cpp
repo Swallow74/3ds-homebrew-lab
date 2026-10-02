@@ -46,7 +46,6 @@ BOOL SoundManager::GetEnable() {
 void SoundManager::SetEnable(BOOL enable) {
   enabled = enable;
   audio_set_enable(enable ? true : false);
-  if (!enable) audio_stop_music();
 }
 
 // ------------------------------------------------
@@ -70,6 +69,10 @@ void SoundManager::PlayEmpty2() { audio_empty2(); }
 void SoundManager::PlayWellDone2() { audio_welldone2(); }
 
 void SoundManager::PlayHit() { audio_hit(); }
+void SoundManager::PlayOver() { audio_over(); }
 
-void SoundManager::PlayMusic() { if (enabled) audio_music(); }
+void SoundManager::SetLineCount(int n) { audio_set_lines(n); }
+
+void SoundManager::PlayMusic(int song) { audio_music(song); }
 void SoundManager::StopMusic() { audio_stop_music(); }
+void SoundManager::SetMusicTempo(float mul) { audio_music_tempo(mul); }
