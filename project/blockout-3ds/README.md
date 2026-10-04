@@ -1,6 +1,6 @@
 # BlockOut 3DS (unofficial port)
 
-Unofficial port of *BlockOut II 2.5* (GPL, 2007, Jean-Luc Pons,
+Unofficial port of *BlockOut II 2.5* (GPL, Jean-Luc Pons,
 https://www.blockout.net/blockout2/) for the Nintendo 3DS (devkitARM / libctru /
 citro2d), loosely inspired by the original rather than a 1:1 conversion.
 "BlockOut" is a registered trademark of Kadon Enterprises, used here
